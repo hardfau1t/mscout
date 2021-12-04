@@ -1,16 +1,26 @@
 use clap::{App, Arg};
 use env_logger;
-use id3::Tag;
-use socket2::{Socket, Domain, Type,SockAddr};
+use id3::{frame::Comment, Tag};
 use log::{debug, error, info, trace, warn};
 use mpd::{idle::Subsystem, status::State, Idle, Song, Status};
+use serde::{Deserialize, Serialize};
+use socket2::{Domain, SockAddr, Socket, Type};
+use std::path::PathBuf;
 use std::process::exit;
 use std::time::{Duration, Instant};
+
+const MP_DESC: &str = "mp_rater";
 
 #[derive(Debug)]
 enum Action {
     Skipped,
     Played,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct Ratings {
+    play_cnt: u16,
+    skip_cnt: u16,
 }
 
 #[derive(Debug)]
@@ -26,6 +36,7 @@ struct Listener {
     last_song: Option<Song>,
     timer: Instant,
     start_time: Duration,
+    dir: std::path::PathBuf,
 }
 
 impl Listener {
@@ -37,28 +48,84 @@ impl Listener {
         let status = client.status()?;
         let timer = Instant::now();
         let last_song = client.currentsong().unwrap();
+        let dir: PathBuf = PathBuf::from(client.music_directory().unwrap());
         Ok(Listener {
             client,
             last_state: status,
             timer,
             start_time: timer.elapsed(),
             last_song,
+            dir,
         })
     }
     fn add_sticker(&self, sticker_type: Action, op: Operation) {
         info!(
-            "appending to sticker {:?} to {:?} ",
-            sticker_type, self.last_state.song
+            "{:?} to sticker {:?} to {:?} ",
+            op,sticker_type, self.last_state.song
         );
     }
     fn add_tag(&self, tag_type: Action, op: Operation) {
         info!(
-            "appending to tag {:?} to {:?} ",
-            tag_type, self.last_state.song
+            "{:?} to tag {:?} to {:?} ",
+            op, tag_type, self.last_state.song
         );
-
-        println!("path is {:#?}", self.last_song.as_ref().unwrap());
+        let mut cmt = None;
+        let mut spath = self.dir.clone();
+        spath.push(self.last_song.as_ref().unwrap().file.clone());
+        debug!("path is {:#?}", spath);
+        let mut tag = Tag::read_from_path(&spath).unwrap();
+        for com in tag.comments() {
+            debug!("available comments are {:?}", cmt);
+            if com.description == MP_DESC {
+                cmt = Some(com.clone());
+                break;
+            }
+        }
+        let mut ratings = cmt.map_or(
+            Ratings {
+                play_cnt: 0,
+                skip_cnt: 0,
+            },
+            |comment| {
+                let rating: Ratings = serde_json::from_str(&comment.text).unwrap_or_else(|err| {
+                    warn!(
+                        "err {} invalid json text for rating comment {}",
+                        err, comment.text
+                    );
+                    Ratings {
+                        play_cnt: 0,
+                        skip_cnt: 0,
+                    }
+                });
+                tag.remove_comment(Some(&comment.description.to_string()), None);
+                rating
+            },
+        );
+        match op {
+            Operation::Add(n) => match tag_type {
+                Action::Skipped => ratings.skip_cnt += n,
+                Action::Played => ratings.play_cnt += n,
+            },
+            Operation::Subtract(n) => match tag_type {
+                Action::Skipped => ratings.skip_cnt = ratings.skip_cnt.saturating_sub(n),
+                Action::Played => ratings.play_cnt = ratings.play_cnt.saturating_sub(n),
+            },
+            Operation::Reset => match tag_type {
+                Action::Skipped => ratings.skip_cnt = 0,
+                Action::Played => ratings.play_cnt = 0,
+            },
+        }
+        let comment: Comment = Comment {
+            lang: "eng".to_string(),
+            description: MP_DESC.to_string(),
+            text: serde_json::to_string(&ratings)
+                .expect("couldn't convert ratings  to json"),
+        };
+        info!("attaching tag comment {:?}", comment);
+        tag.add_comment(comment);
+        tag.write_to_path(&spath, id3::Version::Id3v24).unwrap_or_else(|err|warn!("failed to write tag {}",err));
     }
+
     fn player_event(&mut self) {
         trace!("handling player_event()");
         let status = self.client.status().unwrap();
@@ -104,13 +171,11 @@ impl Listener {
                         }
                     }
                 }
-                debug!("last_state elapsed is {:?}",self.last_state.elapsed);
-                }
-            else {
+                debug!("last_state elapsed is {:?}", self.last_state.elapsed);
+            } else {
                 debug!("probably changed the sequence");
             }
         }
-
     }
     fn listen(&mut self) -> ! {
         loop {
@@ -120,9 +185,7 @@ impl Listener {
             if let Ok(sub_systems) = self.client.wait(&[]) {
                 for system in sub_systems {
                     match system {
-                        Subsystem::Player => {
-                            self.player_event()
-                        },
+                        Subsystem::Player => self.player_event(),
                         _ => trace!("ignoring event {}", system),
                     }
                 }
@@ -163,6 +226,5 @@ fn main() {
         error!("failed to get listener {:?}", error);
         exit(1);
     });
-    println!("{:?}", client.client.music_directory());
     client.listen();
 }
