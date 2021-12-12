@@ -5,16 +5,26 @@ use log::{debug, error, info, trace, warn};
 use mpd::{idle::Subsystem, status::State, Idle, Song, Status};
 use serde::{Deserialize, Serialize};
 use socket2::{Domain, SockAddr, Socket, Type};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::time::{Duration, Instant};
 
 const MP_DESC: &str = "mp_rater";
 
+struct Config {
+    conn_type: ConnectionType ,
+}
+
 #[derive(Debug)]
 enum Action {
     Skipped,
     Played,
+}
+
+#[derive(Debug)]
+enum ConnectionType {
+    UnixSock(String),
+    NetSock(String),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -40,11 +50,16 @@ struct Listener {
 }
 
 impl Listener {
-    fn new<A: std::net::ToSocketAddrs>(address: A) -> Result<Self, mpd::error::Error> {
-        let addr = SockAddr::unix("/home/gireesh/.local/run/mpd/socket").unwrap();
-        let sock = socket2::Socket::new(Domain::UNIX, Type::STREAM, None).unwrap();
-        sock.connect(&addr).unwrap();
-        let mut client = mpd::Client::new(sock)?;
+    fn new(con_address: ConnectionType) -> Result<Self, mpd::error::Error> {
+        let mut client = match con_address {
+            ConnectionType::UnixSock(address) => {
+                let addr = SockAddr::unix(address).unwrap();
+                let sock = socket2::Socket::new(Domain::UNIX, Type::STREAM, None).unwrap();
+                sock.connect(&addr).unwrap();
+                mpd::Client::new(sock)?
+            }
+            ConnectionType::NetSock(_) => unimplemented!(),
+        };
         let status = client.status()?;
         let timer = Instant::now();
         let last_song = client.currentsong().unwrap();
@@ -61,7 +76,7 @@ impl Listener {
     fn add_sticker(&self, sticker_type: Action, op: Operation) {
         info!(
             "{:?} to sticker {:?} to {:?} ",
-            op,sticker_type, self.last_state.song
+            op, sticker_type, self.last_state.song
         );
     }
     fn add_tag(&self, tag_type: Action, op: Operation) {
@@ -81,6 +96,7 @@ impl Listener {
                 break;
             }
         }
+        // if the file has ratings comment then modify it, else create fresh one with 0 0
         let mut ratings = cmt.map_or(
             Ratings {
                 play_cnt: 0,
@@ -118,12 +134,12 @@ impl Listener {
         let comment: Comment = Comment {
             lang: "eng".to_string(),
             description: MP_DESC.to_string(),
-            text: serde_json::to_string(&ratings)
-                .expect("couldn't convert ratings  to json"),
+            text: serde_json::to_string(&ratings).expect("couldn't convert ratings  to json"),
         };
         info!("attaching tag comment {:?}", comment);
         tag.add_comment(comment);
-        tag.write_to_path(&spath, id3::Version::Id3v24).unwrap_or_else(|err|warn!("failed to write tag {}",err));
+        tag.write_to_path(&spath, id3::Version::Id3v24)
+            .unwrap_or_else(|err| warn!("failed to write tag {}", err));
     }
 
     fn player_event(&mut self) {
@@ -135,14 +151,14 @@ impl Listener {
             || status.state == State::Pause
             || self.last_state.state == State::Stop
         {
-            trace!("ignoring player event");
+            debug!("ignoring player due to {:?}", status.state);
             return;
         }
         // if its paused and resume then no need to rate. if paused and now its next song then its
         // been skipped
         if self.last_state.state == State::Pause {
             if self.last_state.song == status.song {
-                trace!("player event: probably seeked");
+                debug!("resumed from pause");
                 return;
             } else if self.last_state.nextsong == status.song {
                 self.add_sticker(Action::Skipped, Operation::Add(1));
@@ -194,7 +210,7 @@ impl Listener {
     }
 }
 
-fn args_handle() {
+fn args_handle() -> Config {
     let mut builder = env_logger::builder();
     let arguments = App::new("mp rater")
         .version("0.1.0")
@@ -205,8 +221,31 @@ fn args_handle() {
                 .short("v")
                 .multiple(true)
                 .long("verbose")
-                .help("sets the verbose level, use multiple times for more verbosity"),
+                .help("sets the verbose level, use multiple times for more verbosity")
         )
+        .arg(Arg::with_name("socket_path")
+             .short("s")
+             .long("socket-path")
+             .conflicts_with("socket_addr")
+             .takes_value(true)
+             .required_unless("socket_addr")
+             .validator(|pth|{
+                 if Path::new(&pth).exists(){
+                     Ok(())
+                 }else{
+                     Err(format!("could get the socket {}", pth))
+                 }
+             })
+             .help("path to mpd socket. If  this flag is set then music directory is automatically taken from mpd")
+             )
+        .arg(Arg::with_name("socket_addr")
+             .short("a")
+             .long("socket-address")
+             .number_of_values(2)
+             .required_unless("socket_path")
+             .conflicts_with("socket_path")
+             .help("mpd socket address. <host> <port> ex. -a 127.0.0.1 6600")
+             )
         .get_matches();
     match arguments.occurrences_of("v") {
         0 => builder.filter_level(log::LevelFilter::Warn).init(),
@@ -219,10 +258,18 @@ fn args_handle() {
         }
     }
     debug!("log_level set to {:?}", log::max_level());
+    let conn_type:ConnectionType = if arguments.is_present("socket_path"){
+        ConnectionType::UnixSock(arguments.value_of("socket_path").unwrap().to_string())
+    }else{
+        unimplemented!("need to add support for mpd sockets");
+    };
+    Config{
+        conn_type
+    }
 }
 fn main() {
-    args_handle();
-    let mut client = Listener::new(("127.0.0.1", 6600)).unwrap_or_else(|error| {
+    let cfg = args_handle();
+    let mut client = Listener::new(cfg.conn_type).unwrap_or_else(|error| {
         error!("failed to get listener {:?}", error);
         exit(1);
     });
