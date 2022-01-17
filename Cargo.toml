@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 mpd="*"
 log="0.4"
-clap="2.33"
+clap="3.0.7"
 env_logger="0.9"
 id3="0.6"
 socket2={version="0.4", features=["all"]}
