@@ -1,9 +1,8 @@
 mod listener;
 mod stats;
 use clap::{App, Arg};
-use log::{debug, error, trace};
+use log::{debug, trace};
 use std::path::Path;
-use std::process::exit;
 
 fn main() {
   let mut builder = env_logger::builder();
@@ -36,10 +35,9 @@ fn main() {
         .arg(Arg::new("socket_addr")
              .short('a')
              .long("socket-address")
-             .number_of_values(2)
              .required_unless_present("socket_path")
              .conflicts_with("socket_path")
-             .help("mpd socket address. <host> <port> ex. -a 127.0.0.1 6600")
+             .help("mpd socket address. <host>:<port> ex. -a 127.0.0.1:6600")
              )
         .subcommand(
             App::new("listen")
@@ -111,10 +109,11 @@ fn main() {
 
   // set the verbosity
   match arguments.occurrences_of("verbose") {
-    0 => builder.filter_level(log::LevelFilter::Warn).init(),
-    1 => builder.filter_level(log::LevelFilter::Info).init(),
-    2 => builder.filter_level(log::LevelFilter::Debug).init(),
-    3 => builder.filter_level(log::LevelFilter::Trace).init(),
+    0 => builder.filter_level(log::LevelFilter::Error).init(),
+    1 => builder.filter_level(log::LevelFilter::Warn).init(),
+    2 => builder.filter_level(log::LevelFilter::Info).init(),
+    3 => builder.filter_level(log::LevelFilter::Debug).init(),
+    4 => builder.filter_level(log::LevelFilter::Trace).init(),
     _ => {
       builder.filter_level(log::LevelFilter::Trace).init();
       trace!("wait one of the rust expert is coming to debug");
@@ -122,14 +121,22 @@ fn main() {
   }
   debug!("log_level set to {:?}", log::max_level());
 
-  let conn_type: listener::ConnectionType = if arguments.is_present("socket_path") {
-    listener::ConnectionType::UnixSock(arguments.value_of("socket_path").unwrap().to_string())
+  let conn = if arguments.is_present("socket_path") {
+    let stream = arguments.value_of("socket_path").unwrap();
+    debug!("connecting to unix stream {}", stream);
+    listener::ConnType::Stream(std::os::unix::net::UnixStream::connect(stream).unwrap())
+  } else if arguments.is_present("socket-address") {
+    let address = arguments.value_of("socket-address").unwrap();
+    debug!("connecting to TcpStream {}", address);
+    listener::ConnType::Socket(std::net::TcpStream::connect(address).unwrap())
   } else {
-    unimplemented!("need to add support for mpd sockets");
+    unreachable!()
   };
-  let mut client = listener::Listener::new(conn_type).unwrap_or_else(|error| {
-    error!("failed to get listener {:?}", error);
-    exit(1);
-  });
-  client.listen();
+  let mut comm = listener::Listener::new(conn).unwrap();
+  match arguments.subcommand() {
+    Some(("listen", subm)) => comm.listen(subm),
+    Some(("get-stats", subm)) => comm.get_stats(subm),
+    Some(("set-stats", subm)) => comm.set_stats(subm),
+    _ => {}
+  }
 }

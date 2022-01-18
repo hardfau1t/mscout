@@ -1,17 +1,42 @@
 use id3::{frame::Comment, Tag};
-use log::{debug, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use mpd::{idle::Subsystem, status::State, Idle, Song, Status};
 use serde::{Deserialize, Serialize};
-use socket2::{Domain, SockAddr, Socket, Type};
+use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::process::exit;
 use std::time::{Duration, Instant};
 
 const MP_DESC: &str = "mp_rater";
 
 #[derive(Debug)]
-pub enum ConnectionType {
-  UnixSock(String),
-  NetSock(String),
+pub enum ConnType {
+  Stream(std::os::unix::net::UnixStream),
+  Socket(std::net::TcpStream),
+}
+impl Read for ConnType {
+  fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    match self {
+      ConnType::Stream(s) => s.read(buf),
+      ConnType::Socket(s) => s.read(buf),
+    }
+  }
+}
+
+impl Write for ConnType {
+  fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+    match self {
+      ConnType::Stream(s) => s.write(buf),
+      ConnType::Socket(s) => s.write(buf),
+    }
+  }
+
+  fn flush(&mut self) -> std::io::Result<()> {
+    match self {
+      ConnType::Stream(s) => s.flush(),
+      ConnType::Socket(s) => s.flush(),
+    }
+  }
 }
 
 #[derive(Debug)]
@@ -34,7 +59,7 @@ enum Operation {
 }
 
 pub struct Listener {
-  client: mpd::Client<Socket>,
+  client: mpd::Client<ConnType>,
   last_state: Status,
   last_song: Option<Song>,
   timer: Instant,
@@ -43,16 +68,8 @@ pub struct Listener {
 }
 
 impl Listener {
-  pub fn new(con_address: ConnectionType) -> Result<Self, mpd::error::Error> {
-    let mut client = match con_address {
-      ConnectionType::UnixSock(address) => {
-        let addr = SockAddr::unix(address).unwrap();
-        let sock = socket2::Socket::new(Domain::UNIX, Type::STREAM, None).unwrap();
-        sock.connect(&addr).unwrap();
-        mpd::Client::new(sock)?
-      }
-      ConnectionType::NetSock(_) => unimplemented!(),
-    };
+  pub fn new(conn: ConnType) -> Result<Self, mpd::error::Error> {
+    let mut client = mpd::Client::new(conn).unwrap();
     let status = client.status()?;
     let timer = Instant::now();
     let last_song = client.currentsong().unwrap();
@@ -72,6 +89,7 @@ impl Listener {
       op, sticker_type, self.last_state.song
     );
   }
+
   fn add_tag(&self, tag_type: Action, op: Operation) {
     info!(
       "{:?} to tag {:?} to {:?} ",
@@ -81,7 +99,16 @@ impl Listener {
     let mut spath = self.dir.clone();
     spath.push(self.last_song.as_ref().unwrap().file.clone());
     debug!("path is {:#?}", spath);
-    let mut tag = Tag::read_from_path(&spath).unwrap();
+    let mut tag = Tag::read_from_path(&spath).unwrap_or_else(|err: id3::Error| match err.kind {
+      id3::ErrorKind::NoTag => {
+        warn!("no tag found creating a new id3 tag");
+        Tag::new()
+      }
+      _ => {
+        error!(" error while opening tag {:?}", err.description);
+        exit(1)
+      }
+    });
     for com in tag.comments() {
       debug!("available comments are {:?}", cmt);
       if com.description == MP_DESC {
@@ -187,7 +214,8 @@ impl Listener {
       }
     }
   }
-  pub fn listen(&mut self) -> ! {
+
+  pub fn listen(&mut self, subc: &clap::ArgMatches) -> ! {
     loop {
       self.last_state = self.client.status().unwrap();
       self.last_song = self.client.currentsong().unwrap();
@@ -201,5 +229,11 @@ impl Listener {
         }
       }
     }
+  }
+  pub fn get_stats(&self, subc:&clap::ArgMatches){
+      todo!()
+  }
+  pub fn set_stats(&self, subc:&clap::ArgMatches){
+      todo!()
   }
 }
