@@ -1,3 +1,8 @@
+#![warn(missing_docs)]
+#![warn(clippy::missing_docs_in_private_items)]
+
+//! This crate provides a way to set or get ratings for songs based on listening statistics.
+//! This is written for mpd as plugin. To work you have to have mpd running.
 mod listener;
 mod stats;
 use clap::{App, Arg};
@@ -17,6 +22,12 @@ fn main() {
                 .long("verbose")
                 .help("sets the verbose level, use multiple times for more verbosity")
         )
+            .arg(
+                Arg::new("use-tags")
+                .short('t')
+                .long("use-tags")
+                .help("use eyed3 tags to store ratings. If not specified by default mpd stickers are used. tags are persistante across file moves, where as incase of mpd sticker these will be erased if you move the files.")
+                )
         .arg(Arg::new("socket_path")
              .short('p')
              .long("socket-path")
@@ -44,19 +55,7 @@ fn main() {
             .short_flag('l')
             .long_flag("listen")
             .about("listens for mpd events")
-            .arg(
-                Arg::new("mpd_database")
-                .short('m')
-                .long("use-mpd")
-                .help("use mpd database to store statistics as stickers")
-             )
-            .arg(
-                Arg::new("tag_database")
-                .short('t')
-                .long("use-tags")
-                .help("use eyed3 tags to store ratings. These will be stored in comments")
-                )
-            )
+        )
         .subcommand(
             App::new("get-stats")
             .short_flag('g')
@@ -134,7 +133,7 @@ fn main() {
   };
   let mut client = mpd::Client::new(con_t).unwrap();
   match arguments.subcommand() {
-    Some(("listen", subm)) => listener::listen(&mut client, subm),
+    Some(("listen", subm)) => listener::listen(&mut client, subm, arguments.is_present("use-tags")),
     Some(("get-stats", subm)) => stats::get_stats(&client, subm),
     Some(("set-stats", subm)) => stats::set_stats(&client, subm),
     _ => {}

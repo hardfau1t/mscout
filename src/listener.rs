@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::time::{Duration, Instant};
 
+/// header name which will be used on either mpd's sticker database or tags for identifications
 const MP_DESC: &str = "mp_rater";
 
 #[derive(Debug)]
@@ -59,37 +60,58 @@ pub struct Statistics {
 //   Reset,
 // }
 
-// pub struct Listener {
-//   client: mpd::Client<ConnType>,
-//   last_song: Option<Song>,
-//   timer: Instant,
-//   dir: std::path::PathBuf,
-// }
-
-// impl Listener {
-//   pub fn new(conn: ConnType) -> Result<Self, mpd::error::Error> {
-//     let mut client = mpd::Client::new(conn).unwrap();
-//     let timer = Instant::now();
-//     let last_song = client.currentsong().unwrap();
-//     let dir: PathBuf = PathBuf::from(client.music_directory().unwrap());
-//     Ok(Listener {
-//       client,
-//       timer,
-//       last_song,
-//       dir,
-//     })
-//   }
-pub fn get_sticker() -> Statistics {
-  todo!();
+/// gets the stats from mpd sticker database.
+/// where spath is the path to the song relative to mpd's directory
+pub fn stats_from_sticker(
+  client: &mut mpd::Client<ConnType>,
+  spath: &std::path::Path,
+) -> Statistics {
+  info!("getting stats from  mpd database for {:?}", spath);
+  // get the stats from sticker, if not found then return 0,0
+  client
+    .sticker("song", spath.to_str().unwrap(), MP_DESC)
+    .map_or(
+      Statistics {
+        play_cnt: 0,
+        skip_cnt: 0,
+      },
+      |sticker| {
+        serde_json::from_str(&sticker).unwrap_or_else(|err| {
+          warn!("couldn't parse sticker: {:?}", err);
+          client
+            .delete_sticker("song", spath.to_str().unwrap(), MP_DESC)
+            .unwrap_or_else(|err| warn!("failed to delete sticker {:?}", err));
+          Statistics {
+            play_cnt: 0,
+            skip_cnt: 0,
+          }
+        })
+      },
+    )
 }
-pub fn set_sticker(_stats: &Statistics) {
-  todo!();
+
+/// set the stats to mpd sticker database.
+/// where spath is the path to the song relative to mpd's directory
+pub fn stats_to_sticker(
+  client: &mut mpd::Client<ConnType>,
+  spath: &std::path::Path,
+  stats: &Statistics,
+) {
+  info!("setting stats {:?} to mpd database for {:?}", stats, spath);
+  client
+    .set_sticker(
+      "song",
+      spath.to_str().unwrap(),
+      MP_DESC,
+      &serde_json::to_string(stats).expect("Couldn't dump stats to json"),
+    )
+    .expect("Couldn't dump to mpd  database");
 }
 
 pub fn get_from_tag(spath: &std::path::Path) -> Statistics {
   let mut cmt = None;
   debug!("songs full path is {:#?}", spath);
-  let mut tag = Tag::read_from_path(&spath).unwrap_or_else(|err: id3::Error| match err.kind {
+  let tag = Tag::read_from_path(&spath).unwrap_or_else(|err: id3::Error| match err.kind {
     id3::ErrorKind::NoTag => {
       warn!("no tag found creating a new id3 tag");
       Tag::new()
@@ -123,8 +145,6 @@ pub fn get_from_tag(spath: &std::path::Path) -> Statistics {
           skip_cnt: 0,
         }
       });
-      let desc = comment.description;
-      tag.remove_comment(Some(&desc), None);
       rating
     },
   )
@@ -215,16 +235,19 @@ fn eval_player_events(
     }
   }
 }
-pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches) -> ! {
+pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_tags: bool) -> ! {
   let timer = Instant::now();
-  let root_dir = PathBuf::from(client.music_directory().unwrap());
-
+  let root_dir = if use_tags {
+    PathBuf::from(client.music_directory().unwrap())
+  } else {
+    std::path::PathBuf::new()
+  };
   loop {
     let mut spath = root_dir.clone();
+    spath.push(client.currentsong().unwrap().unwrap().file);
     let last_state = client.status().unwrap();
     let start_time = timer.elapsed();
     // TODO: remove unwrap and add a closure to wait for the state change, may be if state is stopped or no song is in queue then this will error
-    spath.push(client.currentsong().unwrap().unwrap().file);
 
     if let Ok(sub_systems) = client.wait(&[]) {
       // sub systems which caused the thread to wake up
@@ -235,14 +258,32 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches) -> !
             match action {
               Action::WhoCares => debug!("Someone can't sleep peacefully"),
               Action::Played => {
-                let mut stats = get_from_tag(&spath);
+                // TODO: optimise this in better way
+                let mut stats = if use_tags {
+                  get_from_tag(&spath)
+                } else {
+                  stats_from_sticker(client, &spath)
+                };
                 stats.play_cnt += 1;
-                set_to_tag(&spath, &stats);
-              } // TODO: Based on user option call set_sticker or set_tag
+                if use_tags {
+                  set_to_tag(&spath, &stats)
+                } else {
+                  stats_to_sticker(client, &spath, &stats)
+                };
+              }
               Action::Skipped => {
-                let mut stats = get_from_tag(&spath);
+                // TODO: optimise this in better way
+                let mut stats = if use_tags {
+                  get_from_tag(&spath)
+                } else {
+                  stats_from_sticker(client, &spath)
+                };
                 stats.skip_cnt += 1;
-                set_to_tag(&spath, &stats);
+                if use_tags {
+                  set_to_tag(&spath, &stats)
+                } else {
+                  stats_to_sticker(client, &spath, &stats)
+                };
               }
             };
           }
