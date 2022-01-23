@@ -132,10 +132,11 @@ fn main() {
     unreachable!()
   };
   let mut client = mpd::Client::new(con_t).unwrap();
+  let use_tags =  arguments.is_present("use-tags");
   match arguments.subcommand() {
-    Some(("listen", subm)) => listener::listen(&mut client, subm, arguments.is_present("use-tags")),
-    Some(("get-stats", subm)) => stats::get_stats(&client, subm),
-    Some(("set-stats", subm)) => stats::set_stats(&client, subm),
+    Some(("listen", subm)) => listener::listen(&mut client, subm, use_tags),
+    Some(("get-stats", subm)) => stats::get_stats(&client, subm, use_tags),
+    Some(("set-stats", subm)) => stats::set_stats(&client, subm, use_tags),
     _ => {}
   }
 }

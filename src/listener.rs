@@ -1,3 +1,5 @@
+//! This module handles functions relating listening to events from mpd and setting stats to a song based on the
+//! events
 use id3::{frame::Comment, Tag};
 use log::{debug, error, info, trace, warn};
 use mpd::{idle::Subsystem, status::State, Idle};
@@ -10,9 +12,12 @@ use std::time::{Duration, Instant};
 /// header name which will be used on either mpd's sticker database or tags for identifications
 const MP_DESC: &str = "mp_rater";
 
+/// defines connection type for the mpd.
 #[derive(Debug)]
 pub enum ConnType {
+  /// connects through linux socket file
   Stream(std::os::unix::net::UnixStream),
+  /// connects using normal network sockets
   Socket(std::net::TcpStream),
 }
 impl Read for ConnType {
@@ -40,25 +45,27 @@ impl Write for ConnType {
   }
 }
 
+/// specifies last action of the mpd event. It is different from mpd events that mpd events only
+/// mentions subsystems which can't be used to determine the status without some calculations
 #[derive(Debug)]
-pub enum Action {
+enum Action {
+  /// last event skipped the playing song.
   Skipped,
+  /// last event successfully played complete song
   Played,
+  /// doesn't matter if other type of event has occurred
   WhoCares,
 }
 
+/// stores statistics in the form of played count and skipped count. using these perticular song
+/// can be rated.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Statistics {
+  /// number of times a song is played completely.
   play_cnt: u16,
+  /// number of times a song is skipped.
   skip_cnt: u16,
 }
-
-// #[derive(Debug)]
-// enum Operation {
-//   Add(u16),
-//   Subtract(u16),
-//   Reset,
-// }
 
 /// gets the stats from mpd sticker database.
 /// where spath is the path to the song relative to mpd's directory
@@ -108,6 +115,8 @@ pub fn stats_to_sticker(
     .expect("Couldn't dump to mpd  database");
 }
 
+/// extracts the statistics from eyed3 tags(from comments).
+/// spath : absolute path to the song.
 pub fn get_from_tag(spath: &std::path::Path) -> Statistics {
   let mut cmt = None;
   debug!("songs full path is {:#?}", spath);
@@ -150,6 +159,8 @@ pub fn get_from_tag(spath: &std::path::Path) -> Statistics {
   )
 }
 
+/// set the statistics to the eyed3 tags(from comments).
+/// spath : absolute path to the song.
 pub fn set_to_tag(spath: &std::path::Path, stats: &Statistics) {
   debug!("setting tag to {:#?}", spath);
   let mut tag = Tag::read_from_path(&spath).unwrap_or_else(|err: id3::Error| match err.kind {
@@ -174,6 +185,10 @@ pub fn set_to_tag(spath: &std::path::Path, stats: &Statistics) {
     .unwrap_or_else(|err| warn!("failed to write tag {}", err));
 }
 
+/// by comparing last state to the current state this fn will determine whether an event skipped a
+/// song or fully played based on that it returns action type.
+/// Note: only skip to next song is counted, not if previous song is played or some other random
+/// song in the sequence is played.
 fn eval_player_events(
   client: &mut mpd::Client<ConnType>,
   last_state: &mpd::Status,
@@ -235,8 +250,13 @@ fn eval_player_events(
     }
   }
 }
+
+/// listens to mpd events sets the statistics for the song
+/// use_tags: if its true then eyed3 tags will be used else mpd stickers are used to store stats
 pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_tags: bool) -> ! {
   let timer = Instant::now();
+  // if stickers are used then only relative path provided by mpd is used so empty buf is
+  // initialized
   let root_dir = if use_tags {
     PathBuf::from(client.music_directory().unwrap())
   } else {
