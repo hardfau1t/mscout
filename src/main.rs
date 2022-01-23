@@ -121,7 +121,7 @@ fn main() {
   }
   debug!("log_level set to {:?}", log::max_level());
 
-  let conn = if arguments.is_present("socket_path") {
+  let con_t = if arguments.is_present("socket_path") {
     let stream = arguments.value_of("socket_path").unwrap();
     debug!("connecting to unix stream {}", stream);
     listener::ConnType::Stream(std::os::unix::net::UnixStream::connect(stream).unwrap())
@@ -132,11 +132,11 @@ fn main() {
   } else {
     unreachable!()
   };
-  let mut comm = listener::Listener::new(conn).unwrap();
+  let mut client = mpd::Client::new(con_t).unwrap();
   match arguments.subcommand() {
-    Some(("listen", subm)) => listener::listen(&mut comm, subm),
-    Some(("get-stats", subm)) => stats::get_stats(&comm, subm),
-    Some(("set-stats", subm)) => stats::set_stats(&comm, subm),
+    Some(("listen", subm)) => listener::listen(&mut client, subm),
+    Some(("get-stats", subm)) => stats::get_stats(&client, subm),
+    Some(("set-stats", subm)) => stats::set_stats(&client, subm),
     _ => {}
   }
 }
