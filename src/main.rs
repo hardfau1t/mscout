@@ -134,9 +134,9 @@ fn main() {
   };
   let mut comm = listener::Listener::new(conn).unwrap();
   match arguments.subcommand() {
-    Some(("listen", subm)) => comm.listen(subm),
-    Some(("get-stats", subm)) => comm.get_stats(subm),
-    Some(("set-stats", subm)) => comm.set_stats(subm),
+    Some(("listen", subm)) => listener::listen(&mut comm, subm),
+    Some(("get-stats", subm)) => stats::get_stats(&comm, subm),
+    Some(("set-stats", subm)) => stats::set_stats(&comm, subm),
     _ => {}
   }
 }
