@@ -9,6 +9,7 @@ use clap::{App, Arg};
 use log::{debug, error, trace};
 use once_cell::sync::OnceCell;
 use std::path::Path;
+use std::process::exit;
 
 /// contains root dir string optionally either if the user passes through cmdline or if the unix
 /// socket file is given
@@ -33,12 +34,12 @@ fn main() {
                 .long("use-tags")
                 .help("use eyed3 tags to store ratings. If not specified by default mpd stickers are used. tags are persistante across file moves, where as incase of mpd sticker these will be erased if you move the files.")
                 )
-        .arg(Arg::new("socket_path")
+        .arg(Arg::new("socket-path")
              .short('p')
              .long("socket-path")
-             .conflicts_with("socket_addr")
+             .conflicts_with("socket-address")
              .takes_value(true)
-             .required_unless_present("socket_addr")
+             .required_unless_present("socket-address")
              .validator(|pth|{
                  if Path::new(&pth).exists(){
                      Ok(())
@@ -61,11 +62,11 @@ fn main() {
              })
              .help("root directory of mpd server.")
              )
-        .arg(Arg::new("socket_addr")
+        .arg(Arg::new("socket-address")
              .short('a')
              .long("socket-address")
-             .required_unless_present("socket_path")
-             .conflicts_with("socket_path")
+             .required_unless_present("socket-path")
+             .conflicts_with("socket-path")
              .takes_value(true)
              .help("mpd socket address. <host>:<port> ex. -a 127.0.0.1:6600")
              )
@@ -152,8 +153,8 @@ fn main() {
   }
   debug!("log_level set to {:?}", log::max_level());
 
-  let con_t = if arguments.is_present("socket_path") {
-    let stream = arguments.value_of("socket_path").unwrap();
+  let con_t = if arguments.is_present("socket-path") {
+    let stream = arguments.value_of("socket-path").unwrap();
     debug!("connecting to unix stream {}", stream);
     listener::ConnType::Stream(std::os::unix::net::UnixStream::connect(stream).unwrap())
   } else if arguments.is_present("socket-address") {
@@ -166,16 +167,15 @@ fn main() {
   let mut client = mpd::Client::new(con_t).unwrap();
   let use_tags = arguments.is_present("use-tags");
   if use_tags {
-    if arguments.is_present("socket_path") {
-      ROOT_DIR
-        .set(client.music_directory().unwrap())
-        .unwrap();
+    if arguments.is_present("socket-path") {
+      ROOT_DIR.set(client.music_directory().unwrap()).unwrap();
     } else if arguments.is_present("root-dir") {
       ROOT_DIR
         .set(arguments.value_of("root-dir").unwrap().to_string())
         .unwrap();
     } else {
-      error!("root dir is not found, either use socket_path or mention root_dir manually");
+      error!("root dir is not found, either use socket-path or mention root_dir manually");
+      exit(1);
     }
   }
   match arguments.subcommand() {
