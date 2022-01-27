@@ -1,16 +1,14 @@
 //! This module handles functions relating listening to events from mpd and setting stats to a song based on the
 //! events
-use id3::{frame::Comment, Tag};
-use log::{debug, error, info, trace, warn};
+use crate::stats;
+use log::{debug, trace};
 use mpd::{idle::Subsystem, status::State, Idle};
-use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::process::exit;
 use std::time::{Duration, Instant};
 
 /// header name which will be used on either mpd's sticker database or tags for identifications
-const MP_DESC: &str = "mp_rater";
+pub const MP_DESC: &str = "mp_rater";
 
 /// defines connection type for the mpd.
 #[derive(Debug)]
@@ -55,134 +53,6 @@ enum Action {
   Played,
   /// doesn't matter if other type of event has occurred
   WhoCares,
-}
-
-/// stores statistics in the form of played count and skipped count. using these perticular song
-/// can be rated.
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Statistics {
-  /// number of times a song is played completely.
-  play_cnt: u16,
-  /// number of times a song is skipped.
-  skip_cnt: u16,
-}
-
-/// gets the stats from mpd sticker database.
-/// where spath is the path to the song relative to mpd's directory
-pub fn stats_from_sticker(
-  client: &mut mpd::Client<ConnType>,
-  spath: &std::path::Path,
-) -> Statistics {
-  info!("getting stats from  mpd database for {:?}", spath);
-  // get the stats from sticker, if not found then return 0,0
-  client
-    .sticker("song", spath.to_str().unwrap(), MP_DESC)
-    .map_or(
-      Statistics {
-        play_cnt: 0,
-        skip_cnt: 0,
-      },
-      |sticker| {
-        serde_json::from_str(&sticker).unwrap_or_else(|err| {
-          warn!("couldn't parse sticker: {:?}", err);
-          client
-            .delete_sticker("song", spath.to_str().unwrap(), MP_DESC)
-            .unwrap_or_else(|err| warn!("failed to delete sticker {:?}", err));
-          Statistics {
-            play_cnt: 0,
-            skip_cnt: 0,
-          }
-        })
-      },
-    )
-}
-
-/// set the stats to mpd sticker database.
-/// where spath is the path to the song relative to mpd's directory
-pub fn stats_to_sticker(
-  client: &mut mpd::Client<ConnType>,
-  spath: &std::path::Path,
-  stats: &Statistics,
-) {
-  info!("setting stats {:?} to mpd database for {:?}", stats, spath);
-  client
-    .set_sticker(
-      "song",
-      spath.to_str().unwrap(),
-      MP_DESC,
-      &serde_json::to_string(stats).expect("Couldn't dump stats to json"),
-    )
-    .expect("Couldn't dump to mpd  database");
-}
-
-/// extracts the statistics from eyed3 tags(from comments).
-/// spath : absolute path to the song.
-pub fn get_from_tag(spath: &std::path::Path) -> Statistics {
-  let mut cmt = None;
-  debug!("songs full path is {:#?}", spath);
-  let tag = Tag::read_from_path(&spath).unwrap_or_else(|err: id3::Error| match err.kind {
-    id3::ErrorKind::NoTag => {
-      warn!("no tag found creating a new id3 tag");
-      Tag::new()
-    }
-    _ => {
-      error!(" error while opening tag {:?}", err.description);
-      exit(1)
-    }
-  });
-  for com in tag.comments() {
-    debug!("available comments are {:?}", com);
-    if com.description == MP_DESC {
-      cmt = Some(com.clone());
-      break;
-    }
-  }
-  // if the file has ratings comment then modify it, else create fresh one with 0 0
-  cmt.map_or(
-    Statistics {
-      play_cnt: 0,
-      skip_cnt: 0,
-    },
-    |comment| {
-      let rating: Statistics = serde_json::from_str(&comment.text).unwrap_or_else(|err| {
-        warn!(
-          "err {} invalid json text for rating comment {}",
-          err, comment.text
-        );
-        Statistics {
-          play_cnt: 0,
-          skip_cnt: 0,
-        }
-      });
-      rating
-    },
-  )
-}
-
-/// set the statistics to the eyed3 tags(from comments).
-/// spath : absolute path to the song.
-pub fn set_to_tag(spath: &std::path::Path, stats: &Statistics) {
-  debug!("setting tag to {:#?}", spath);
-  let mut tag = Tag::read_from_path(&spath).unwrap_or_else(|err: id3::Error| match err.kind {
-    id3::ErrorKind::NoTag => {
-      warn!("no tag found creating a new id3 tag");
-      Tag::new()
-    }
-    _ => {
-      error!(" error while opening tag {:?}", err.description);
-      exit(1)
-    }
-  });
-  let comment: Comment = Comment {
-    lang: "eng".to_string(),
-    description: MP_DESC.to_string(),
-    text: serde_json::to_string(stats).expect("couldn't convert ratings  to json"),
-  };
-  info!("attaching tag comment {:?}", comment);
-  tag.add_comment(comment);
-  tag
-    .write_to_path(&spath, id3::Version::Id3v24)
-    .unwrap_or_else(|err| warn!("failed to write tag {}", err));
 }
 
 /// by comparing last state to the current state this fn will determine whether an event skipped a
@@ -280,29 +150,29 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
               Action::Played => {
                 // TODO: optimise this in better way
                 let mut stats = if use_tags {
-                  get_from_tag(&spath)
+                  stats::get_from_tag(&spath)
                 } else {
-                  stats_from_sticker(client, &spath)
+                  stats::stats_from_sticker(client, &spath)
                 };
-                stats.play_cnt += 1;
+                stats.played();
                 if use_tags {
-                  set_to_tag(&spath, &stats)
+                  stats::set_to_tag(&spath, &stats)
                 } else {
-                  stats_to_sticker(client, &spath, &stats)
+                  stats::stats_to_sticker(client, &spath, &stats)
                 };
               }
               Action::Skipped => {
                 // TODO: optimise this in better way
                 let mut stats = if use_tags {
-                  get_from_tag(&spath)
+                  stats::get_from_tag(&spath)
                 } else {
-                  stats_from_sticker(client, &spath)
+                  stats::stats_from_sticker(client, &spath)
                 };
-                stats.skip_cnt += 1;
+                stats.skipped();
                 if use_tags {
-                  set_to_tag(&spath, &stats)
+                  stats::set_to_tag(&spath, &stats)
                 } else {
-                  stats_to_sticker(client, &spath, &stats)
+                  stats::stats_to_sticker(client, &spath, &stats)
                 };
               }
             };

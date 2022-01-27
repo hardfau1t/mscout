@@ -6,8 +6,13 @@
 mod listener;
 mod stats;
 use clap::{App, Arg};
-use log::{debug, trace};
+use log::{debug, error, trace};
+use once_cell::sync::OnceCell;
 use std::path::Path;
+
+/// contains root dir string optionally either if the user passes through cmdline or if the unix
+/// socket file is given
+static ROOT_DIR: OnceCell<String> = OnceCell::new();
 
 fn main() {
   let mut builder = env_logger::builder();
@@ -43,34 +48,61 @@ fn main() {
              })
              .help("path to mpd socket. If  this flag is set then music directory is automatically taken from mpd")
              )
+        .arg(Arg::new("root-dir")
+             .short('r')
+             .long("root-dir")
+             .takes_value(true)
+             .validator(|pth|{
+                 if Path::new(&pth).is_dir(){
+                 Ok(())
+             }else{
+                 Err(format!("invalid root-dir {}", pth))
+             }
+             })
+             .help("root directory of mpd server.")
+             )
         .arg(Arg::new("socket_addr")
              .short('a')
              .long("socket-address")
              .required_unless_present("socket_path")
              .conflicts_with("socket_path")
+             .takes_value(true)
              .help("mpd socket address. <host>:<port> ex. -a 127.0.0.1:6600")
              )
         .subcommand(
             App::new("listen")
-            .short_flag('l')
+            .short_flag('L')
             .long_flag("listen")
             .about("listens for mpd events")
         )
         .subcommand(
             App::new("get-stats")
-            .short_flag('g')
+            .short_flag('G')
             .long_flag("get-stats")
             .about("get the stats of a specific song")
+            .arg(
+                Arg::new("current")
+                .short('c')
+                .long("current")
+                .help("prints stats of a current song")
+                )
+            .arg(Arg::new("stats")
+                 .short('s')
+                 .long("stats")
+                 .help("prints the exact stats instead of a single rating number")
+                 )
             .arg(
                 Arg::new("human-readable")
                 .short('r')
                 .long("human-readable")
+                .conflicts_with("json")
                 .help("print stats in human-readable format")
                 )
             .arg(
                 Arg::new("json")
                 .short('j')
                 .long("json")
+                .conflicts_with("human-readable")
                 .help("print stats in json format")
                 )
             .arg(
@@ -88,7 +120,7 @@ fn main() {
             )
         .subcommand(
             App::new("set-stats")
-            .short_flag('s')
+            .short_flag('S')
             .long_flag("set-stats")
             .about("manually set stats for a perticular song, it should be in json")
             .arg(
@@ -132,10 +164,23 @@ fn main() {
     unreachable!()
   };
   let mut client = mpd::Client::new(con_t).unwrap();
-  let use_tags =  arguments.is_present("use-tags");
+  let use_tags = arguments.is_present("use-tags");
+  if use_tags {
+    if arguments.is_present("socket_path") {
+      ROOT_DIR
+        .set(client.music_directory().unwrap())
+        .unwrap();
+    } else if arguments.is_present("root-dir") {
+      ROOT_DIR
+        .set(arguments.value_of("root-dir").unwrap().to_string())
+        .unwrap();
+    } else {
+      error!("root dir is not found, either use socket_path or mention root_dir manually");
+    }
+  }
   match arguments.subcommand() {
     Some(("listen", subm)) => listener::listen(&mut client, subm, use_tags),
-    Some(("get-stats", subm)) => stats::get_stats(&client, subm, use_tags),
+    Some(("get-stats", subm)) => stats::get_stats(&mut client, subm, use_tags),
     Some(("set-stats", subm)) => stats::set_stats(&client, subm, use_tags),
     _ => {}
   }
