@@ -3,6 +3,7 @@
 use crate::stats;
 use log::{debug, trace};
 use mpd::{idle::Subsystem, status::State, Idle};
+use notify_rust::{Notification, Urgency};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -124,6 +125,12 @@ fn eval_player_events(
 /// listens to mpd events sets the statistics for the song
 /// use_tags: if its true then eyed3 tags will be used else mpd stickers are used to store stats
 pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_tags: bool) -> ! {
+  let mut notif = Notification::new();
+  notif
+    .summary("mp_rater")
+    .timeout(10000)
+    .urgency(Urgency::Low)
+    .icon("/usr/share/icons/Adwaita/scalable/devices/media-optical-dvd-symbolic.svg");
   let timer = Instant::now();
   // if stickers are used then only relative path provided by mpd is used so empty buf is
   // initialized
@@ -148,6 +155,20 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
             match action {
               Action::WhoCares => debug!("Someone can't sleep peacefully"),
               Action::Played => {
+                notif
+                  .clone()
+                  .body(
+                    format!(
+                      "Played: {}",
+                      &spath
+                        .file_name()
+                        .map_or(spath.to_str(), |pth| pth.to_str())
+                        .unwrap()
+                    )
+                    .as_ref(),
+                  )
+                  .show()
+                  .ok();
                 // TODO: optimise this in better way
                 let mut stats = if use_tags {
                   stats::get_from_tag(&spath)
@@ -162,6 +183,20 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                 };
               }
               Action::Skipped => {
+                notif
+                  .clone()
+                  .body(
+                    format!(
+                      "Skipped: {}",
+                      &spath
+                        .file_name()
+                        .map_or(spath.to_str(), |pth| pth.to_str())
+                        .unwrap()
+                    )
+                    .as_ref(),
+                  )
+                  .show()
+                  .ok();
                 // TODO: optimise this in better way
                 let mut stats = if use_tags {
                   stats::get_from_tag(&spath)
