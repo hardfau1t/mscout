@@ -134,14 +134,8 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
   let timer = Instant::now();
   // if stickers are used then only relative path provided by mpd is used so empty buf is
   // initialized
-  let root_dir = if use_tags {
-    PathBuf::from(client.music_directory().unwrap())
-  } else {
-    std::path::PathBuf::new()
-  };
   loop {
-    let mut spath = root_dir.clone();
-    spath.push(client.currentsong().unwrap().unwrap().file);
+    let spath = PathBuf::from(client.currentsong().unwrap().unwrap().file);
     let last_state = client.status().unwrap();
     let start_time = timer.elapsed();
     // TODO: remove unwrap and add a closure to wait for the state change, may be if state is stopped or no song is in queue then this will error

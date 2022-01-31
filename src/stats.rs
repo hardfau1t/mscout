@@ -197,11 +197,14 @@ pub fn get_stats(
       stats_from_sticker(client, &song)
     };
     if args.is_present("stats") {
-        if args.is_present("json"){
-            println!("{}", serde_json::to_string(&rates).unwrap());
-        }else{
-            println!("play count: {}\nskip count {}", rates.play_cnt, rates.skip_cnt);
-        }
+      if args.is_present("json") {
+        println!("{}", serde_json::to_string(&rates).unwrap());
+      } else {
+        println!(
+          "play count: {}\nskip count {}",
+          rates.play_cnt, rates.skip_cnt
+        );
+      }
     } else {
       println!("ratings: {}", rates.get_ratings());
     }
