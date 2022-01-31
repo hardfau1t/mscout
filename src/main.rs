@@ -93,21 +93,15 @@ fn main() {
                  .help("prints the exact stats instead of a single rating number")
                  )
             .arg(
-                Arg::new("human-readable")
-                .short('r')
-                .long("human-readable")
-                .conflicts_with("json")
-                .help("print stats in human-readable format")
-                )
-            .arg(
                 Arg::new("json")
                 .short('j')
                 .long("json")
-                .conflicts_with("human-readable")
+                .requires("stats")
                 .help("print stats in json format")
                 )
             .arg(
                 Arg::new("path")
+                .multiple_values(true)
                 .help("relative path from music directory configured in mpd")
                 // TODO: configure whether to use positional arguments or optional args
                 )

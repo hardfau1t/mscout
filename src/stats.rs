@@ -90,9 +90,13 @@ pub fn stats_to_sticker(
 }
 
 /// extracts the statistics from eyed3 tags(from comments).
-/// spath : absolute path to the song.
-pub fn get_from_tag(spath: &std::path::Path) -> Statistics {
+/// rel_path : relative path to the song from mpd_directory
+pub fn get_from_tag(rel_path: &std::path::Path) -> Statistics {
   let mut cmt = None;
+  let mut spath = path::PathBuf::from(ROOT_DIR.get().expect(
+    "statistics to tag requires full path, try to use --socket-file or set root-dir manually",
+  ));
+  spath.push(rel_path);
   debug!("songs full path is {:#?}", spath);
   let tag = Tag::read_from_path(&spath).unwrap_or_else(|err: id3::Error| match err.kind {
     id3::ErrorKind::NoTag => {
@@ -136,8 +140,12 @@ pub fn get_from_tag(spath: &std::path::Path) -> Statistics {
 /// set the statistics to the eyed3 tags(from comments).
 /// spath : absolute path to the song.
 pub fn set_to_tag(spath: &std::path::Path, stats: &Statistics) {
-  debug!("setting tag to {:#?}", spath);
-  let mut tag = Tag::read_from_path(&spath).unwrap_or_else(|err: id3::Error| match err.kind {
+  let mut root = path::PathBuf::from(ROOT_DIR.get().expect(
+    "statistics to tag requires full path, try to use --socket-file or set root-dir manually",
+  ));
+  root.push(spath);
+  debug!("setting tag to {:#?}", root);
+  let mut tag = Tag::read_from_path(&root).unwrap_or_else(|err: id3::Error| match err.kind {
     id3::ErrorKind::NoTag => {
       warn!("no tag found creating a new id3 tag");
       Tag::new()
@@ -155,40 +163,49 @@ pub fn set_to_tag(spath: &std::path::Path, stats: &Statistics) {
   info!("attaching tag comment {:?}", comment);
   tag.add_comment(comment);
   tag
-    .write_to_path(&spath, id3::Version::Id3v24)
+    .write_to_path(&root, id3::Version::Id3v24)
     .unwrap_or_else(|err| warn!("failed to write tag {}", err));
 }
 
-/// manually sets the user given stats to a song
+/// extracts song statistics from id3 metadata or mpd's database based on use-tags flags
 pub fn get_stats(
   client: &mut mpd::Client<listener::ConnType>,
-  subc: &clap::ArgMatches,
+  args: &clap::ArgMatches,
   use_tags: bool,
 ) {
-  let mut song_path = if use_tags {
-    path::PathBuf::from(ROOT_DIR.get().unwrap())
-  } else {
-    path::PathBuf::new()
-  };
-
-  if subc.is_present("current") {
-    song_path.push(
+  let mut songs = Vec::new();
+  if args.is_present("current") {
+    songs.push(path::PathBuf::from(
       client
         .currentsong()
         .unwrap()
-        .expect("failed to get current song from mpd")
+        .unwrap_or_else(|| {
+          error!("failed to get current song from mpd");
+          exit(1);
+        })
         .file,
-    )
+    ));
   } else {
-    todo!()
+    for user_path in args.values_of("path").unwrap() {
+      songs.push(path::PathBuf::from(user_path));
+    }
   };
-  info!("requested stats for {:?}", song_path);
-  let rates = if use_tags {
-    get_from_tag(&song_path)
-  } else {
-    stats_from_sticker(client, &song_path)
-  };
-  println!("ratings: {}", rates.get_ratings());
+  for song in songs {
+    let rates = if use_tags {
+      get_from_tag(&song)
+    } else {
+      stats_from_sticker(client, &song)
+    };
+    if args.is_present("stats") {
+        if args.is_present("json"){
+            println!("{}", serde_json::to_string(&rates).unwrap());
+        }else{
+            println!("play count: {}\nskip count {}", rates.play_cnt, rates.skip_cnt);
+        }
+    } else {
+      println!("ratings: {}", rates.get_ratings());
+    }
+  }
 }
 
 /// prints the stats of a custom user stats
