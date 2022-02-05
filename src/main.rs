@@ -85,6 +85,7 @@ fn main() {
                 Arg::new("current")
                 .short('c')
                 .long("current")
+                .takes_value(false)
                 .help("prints stats of a current song")
                 )
             .arg(Arg::new("stats")
@@ -105,13 +106,6 @@ fn main() {
                 .help("relative path from music directory configured in mpd")
                 // TODO: configure whether to use positional arguments or optional args
                 )
-            .arg(
-                Arg::new("append-to-playlist")
-                .short('a')
-                .long("add-playlist")
-                .help("appends to current playlist, if playlist is given then if playlist exists then appends to that playlist else creates a new playlist with that name")
-                // TODO: optional name of playlist?
-                )
             )
         .subcommand(
             App::new("set-stats")
@@ -119,7 +113,16 @@ fn main() {
             .long_flag("set-stats")
             .about("manually set stats for a perticular song, it should be in json")
             .arg(
+                Arg::new("current")
+                .short('c')
+                .long("current")
+                .takes_value(false)
+                .help("prints stats of a current song")
+                )
+            .arg(
                 Arg::new("path")
+                .required_unless_present("current")
+                .multiple_values(false)
                 .help("relative path from music directory configured in mpd")
                 // TODO: configure whether to use positional arguments or optional args
                 )
@@ -127,7 +130,9 @@ fn main() {
                 Arg::new("stats")
                 .short('s')
                 .long("stats")
-                .help("stats in json format")
+                .takes_value(true)
+                .required(true)
+                .help("stats in json format. example: {\"play_cnt\":11,\"skip_cnt\":0}")
                 // TODO: add an example
                 )
             )
@@ -175,7 +180,7 @@ fn main() {
   match arguments.subcommand() {
     Some(("listen", subm)) => listener::listen(&mut client, subm, use_tags),
     Some(("get-stats", subm)) => stats::get_stats(&mut client, subm, use_tags),
-    Some(("set-stats", subm)) => stats::set_stats(&client, subm, use_tags),
+    Some(("set-stats", subm)) => stats::set_stats(&mut client, subm, use_tags),
     _ => {}
   }
 }

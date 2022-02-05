@@ -165,13 +165,13 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                   .ok();
                 // TODO: optimise this in better way
                 let mut stats = if use_tags {
-                  stats::get_from_tag(&spath)
+                  stats::stats_from_tag(&spath)
                 } else {
                   stats::stats_from_sticker(client, &spath)
                 };
                 stats.played();
                 if use_tags {
-                  stats::set_to_tag(&spath, &stats)
+                  stats::stats_to_tag(&spath, &stats)
                 } else {
                   stats::stats_to_sticker(client, &spath, &stats)
                 };
@@ -193,13 +193,13 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                   .ok();
                 // TODO: optimise this in better way
                 let mut stats = if use_tags {
-                  stats::get_from_tag(&spath)
+                  stats::stats_from_tag(&spath)
                 } else {
                   stats::stats_from_sticker(client, &spath)
                 };
                 stats.skipped();
                 if use_tags {
-                  stats::set_to_tag(&spath, &stats)
+                  stats::stats_to_tag(&spath, &stats)
                 } else {
                   stats::stats_to_sticker(client, &spath, &stats)
                 };

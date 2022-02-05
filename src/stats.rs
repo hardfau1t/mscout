@@ -91,7 +91,7 @@ pub fn stats_to_sticker(
 
 /// extracts the statistics from eyed3 tags(from comments).
 /// rel_path : relative path to the song from mpd_directory
-pub fn get_from_tag(rel_path: &std::path::Path) -> Statistics {
+pub fn stats_from_tag(rel_path: &std::path::Path) -> Statistics {
   let mut cmt = None;
   let mut spath = path::PathBuf::from(ROOT_DIR.get().expect(
     "statistics to tag requires full path, try to use --socket-file or set root-dir manually",
@@ -139,7 +139,7 @@ pub fn get_from_tag(rel_path: &std::path::Path) -> Statistics {
 
 /// set the statistics to the eyed3 tags(from comments).
 /// spath : absolute path to the song.
-pub fn set_to_tag(spath: &std::path::Path, stats: &Statistics) {
+pub fn stats_to_tag(spath: &std::path::Path, stats: &Statistics) {
   let mut root = path::PathBuf::from(ROOT_DIR.get().expect(
     "statistics to tag requires full path, try to use --socket-file or set root-dir manually",
   ));
@@ -186,13 +186,16 @@ pub fn get_stats(
         .file,
     ));
   } else {
-    for user_path in args.values_of("path").unwrap() {
+    for user_path in args.values_of("path").unwrap_or_else(|| {
+      error!("no song is specified!!");
+      exit(1);
+    }) {
       songs.push(path::PathBuf::from(user_path));
     }
   };
   for song in songs {
     let rates = if use_tags {
-      get_from_tag(&song)
+      stats_from_tag(&song)
     } else {
       stats_from_sticker(client, &song)
     };
@@ -211,11 +214,48 @@ pub fn get_stats(
   }
 }
 
-/// prints the stats of a custom user stats
+/// sets the stats of a custom user stats
 pub fn set_stats(
-  _client: &mpd::Client<listener::ConnType>,
-  _subc: &clap::ArgMatches,
-  _use_tags: bool,
+  client: &mut mpd::Client<listener::ConnType>,
+  subc: &clap::ArgMatches,
+  use_tags: bool,
 ) {
-  todo!()
+    // get the song to set stats, if current is given then get it from mpd or else from path
+    // argument
+  let song_file = if subc.is_present("current") {
+    path::PathBuf::from(
+      client
+        .currentsong()
+        .unwrap()
+        .unwrap_or_else(|| {
+          error!("failed to get current song from mpd");
+          exit(1);
+        })
+        .file,
+    )
+  } else {
+    path::PathBuf::from(subc.value_of("path").unwrap_or_else(|| {
+      error!("missing song path this should be checked during init. please report an issue");
+      exit(1)
+    }))
+  };
+  let stat = serde_json::from_str::<Statistics>(subc.value_of("stats").unwrap()).unwrap_or_else(|err|{
+      match err.classify() {
+          serde_json::error::Category::Syntax => {
+              error!("invalid json syntax at {}:{}, please use -Sh for example", err.line(), err.column());
+          },
+          serde_json::error::Category::Data => {
+              error!("invalid input data format at {}:{} , please use -Sh for example", err.line(), err.column());
+          },
+          _ => {
+              error!("invalid input stats, please use -Sh for example");
+          },
+      }
+      exit(1);
+  });
+  if use_tags{
+      stats_to_tag(&song_file, &stat);
+  }else{
+      stats_to_sticker(client, &song_file, &stat);
+  }
 }
