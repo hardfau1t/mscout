@@ -127,13 +127,28 @@ fn main() {
                 // TODO: configure whether to use positional arguments or optional args
                 )
             .arg(
+                Arg::new("skip_cnt")
+                .short('u')
+                .long("skip-count")
+                .takes_value(true)
+                .conflicts_with("stats")
+                .help("set the skip count for the song")
+                )
+            .arg(
+                Arg::new("play_cnt")
+                .short('p')
+                .long("play-count")
+                .takes_value(true)
+                .conflicts_with("stats")
+                .help("set the play count for the song")
+                )
+            .arg(
                 Arg::new("stats")
                 .short('s')
                 .long("stats")
                 .takes_value(true)
-                .required(true)
+                .required_unless_present_any(&["play_cnt","skip_cnt"])
                 .help("stats in json format. example: {\"play_cnt\":11,\"skip_cnt\":0}")
-                // TODO: add an example
                 )
             )
         .get_matches();

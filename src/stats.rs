@@ -6,8 +6,8 @@ use crate::{
 use id3::{frame::Comment, Tag};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
-use std::path;
 use std::process::exit;
+use std::path;
 
 // #[derive(Debug)]
 // enum Operation {
@@ -220,8 +220,8 @@ pub fn set_stats(
   subc: &clap::ArgMatches,
   use_tags: bool,
 ) {
-    // get the song to set stats, if current is given then get it from mpd or else from path
-    // argument
+  // get the song to set stats, if current is given then get it from mpd or else from path
+  // argument
   let song_file = if subc.is_present("current") {
     path::PathBuf::from(
       client
@@ -239,23 +239,61 @@ pub fn set_stats(
       exit(1)
     }))
   };
-  let stat = serde_json::from_str::<Statistics>(subc.value_of("stats").unwrap()).unwrap_or_else(|err|{
+  let stat = if subc.is_present("stats") {
+    serde_json::from_str::<Statistics>(subc.value_of("stats").unwrap()).unwrap_or_else(|err| {
       match err.classify() {
-          serde_json::error::Category::Syntax => {
-              error!("invalid json syntax at {}:{}, please use -Sh for example", err.line(), err.column());
-          },
-          serde_json::error::Category::Data => {
-              error!("invalid input data format at {}:{} , please use -Sh for example", err.line(), err.column());
-          },
-          _ => {
-              error!("invalid input stats, please use -Sh for example");
-          },
+        serde_json::error::Category::Syntax => {
+          error!(
+            "invalid json syntax at {}:{}, please use -Sh for example",
+            err.line(),
+            err.column()
+          );
+        }
+        serde_json::error::Category::Data => {
+          error!(
+            "invalid input data format at {}:{} , please use -Sh for example",
+            err.line(),
+            err.column()
+          );
+        }
+        _ => {
+          error!("invalid input stats, please use -Sh for example");
+        }
       }
       exit(1);
-  });
-  if use_tags{
-      stats_to_tag(&song_file, &stat);
-  }else{
-      stats_to_sticker(client, &song_file, &stat);
+    })
+  } else {
+    let mut curr_stat = if use_tags {
+      stats_from_tag(&song_file)
+    } else {
+      stats_from_sticker(client, &song_file)
+    };
+    if subc.is_present("play_cnt") {
+      curr_stat.play_cnt = subc
+        .value_of("play_cnt")
+        .unwrap_or_else(|| {
+          warn!("play_cnt value is not set, but is present is set, please report");
+          exit(1);
+        })
+        .parse()
+        .expect("expected integer value for play_cnt");
+    }
+    if subc.is_present("skip_cnt") {
+      curr_stat.skip_cnt = subc
+        .value_of("skip_cnt")
+        .unwrap_or_else(|| {
+          warn!("skip_cnt value is not set, but is present is set, please report");
+          exit(1);
+        })
+        .parse()
+        .expect("expected integer value for skip_cnt");
+    }
+    curr_stat
+  };
+
+  if use_tags {
+    stats_to_tag(&song_file, &stat);
+  } else {
+    stats_to_sticker(client, &song_file, &stat);
   }
 }
