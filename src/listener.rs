@@ -1,11 +1,12 @@
 //! This module handles functions relating listening to events from mpd and setting stats to a song based on the
 //! events
 use crate::stats;
-use log::{debug, trace};
-use mpd::{idle::Subsystem, status::State, Idle};
+use log::{debug, trace, error};
+use mpd::{idle::Subsystem, Idle};
 use notify_rust::{Notification, Urgency};
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::process::exit;
 use std::time::{Duration, Instant};
 
 /// header name which will be used on either mpd's sticker database or tags for identifications
@@ -19,6 +20,7 @@ pub enum ConnType {
   /// connects using normal network sockets
   Socket(std::net::TcpStream),
 }
+
 impl Read for ConnType {
   fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
     match self {
@@ -67,19 +69,19 @@ fn eval_player_events(
   timer: &std::time::Instant,
 ) -> Action {
   trace!("handling player_event()");
-  let curr_state = client.status().unwrap();
+  let curr_state = client.status().unwrap_or_else(|err|{error!("may be mpd connection failed"); exit(1)});
   // if state is paused or stopped then no need to rate. if last state is paused then its
   // just start so no need to rate either
-  if curr_state.state == State::Stop
-    || curr_state.state == State::Pause
-    || last_state.state == State::Stop
+  if curr_state.state == mpd::status::State::Stop
+    || curr_state.state == mpd::status::State::Pause
+    || last_state.state == mpd::status::State::Stop
   {
     debug!("ignoring player due to {:?}", curr_state.state);
     return Action::WhoCares;
   }
   // if its paused and resume then no need to rate. if paused and now its next song then its
   // been skipped
-  if last_state.state == State::Pause {
+  if last_state.state == mpd::status::State::Pause {
     if last_state.song == curr_state.song {
       debug!("resumed from pause");
       Action::WhoCares
@@ -165,7 +167,9 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                   .ok();
                 // TODO: optimise this in better way
                 let mut stats = if use_tags {
-                  stats::stats_from_tag(&spath)
+                  stats::stats_from_tag(&spath).unwrap_or_else(|err|{
+                      todo!()
+                  })
                 } else {
                   stats::stats_from_sticker(client, &spath)
                 };
@@ -193,7 +197,9 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                   .ok();
                 // TODO: optimise this in better way
                 let mut stats = if use_tags {
-                  stats::stats_from_tag(&spath)
+                  stats::stats_from_tag(&spath).unwrap_or_else(|err|{
+                  todo!()
+                  })
                 } else {
                   stats::stats_from_sticker(client, &spath)
                 };

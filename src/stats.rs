@@ -1,7 +1,7 @@
 //! This module has functions related to statitics, manually setting them and displaying them.
 use crate::{
   listener::{self, ConnType, MP_DESC},
-  ROOT_DIR,
+  ROOT_DIR, error::CustomEror,
 };
 use id3::{frame::Comment, Tag};
 use log::{debug, error, info, warn};
@@ -24,6 +24,17 @@ pub struct Statistics {
   play_cnt: u32,
   /// number of times a song is skipped.
   skip_cnt: u32,
+}
+
+/// Error type
+#[derive(Debug)]
+pub enum Error{
+    /// when the requested file doesn't exists.
+    FileNotExists,
+    /// Connection with mpd failed
+    ConnectionFailed,
+    /// unknown Error
+    Unknown,
 }
 
 impl Statistics {
@@ -86,12 +97,11 @@ pub fn stats_to_sticker(
       MP_DESC,
       &serde_json::to_string(stats).expect("Couldn't dump stats to json"),
     )
-    .expect("Couldn't dump to mpd  database");
+    .try_unwrap("Couldn't dump to mpd  database");
 }
 
 /// extracts the statistics from eyed3 tags(from comments).
-/// rel_path : relative path to the song from mpd_directory
-pub fn stats_from_tag(rel_path: &std::path::Path) -> Statistics {
+pub fn stats_from_tag(rel_path: &std::path::Path) -> Result<Statistics, Error> {
   let mut cmt = None;
   let mut spath = path::PathBuf::from(ROOT_DIR.get().expect(
     "statistics to tag requires full path, try to use --socket-file or set root-dir manually",
@@ -104,7 +114,7 @@ pub fn stats_from_tag(rel_path: &std::path::Path) -> Statistics {
       Tag::new()
     }
     _ => {
-      error!(" error while opening tag {:?}", err.description);
+      error!(" error while opening tag {:?} for song {:?}", err.description, rel_path);
       exit(1)
     }
   });
@@ -117,10 +127,10 @@ pub fn stats_from_tag(rel_path: &std::path::Path) -> Statistics {
   }
   // if the file has ratings comment then modify it, else create fresh one with 0 0
   cmt.map_or(
-    Statistics {
+    Ok(Statistics {
       play_cnt: 0,
       skip_cnt: 0,
-    },
+    }),
     |comment| {
       let rating: Statistics = serde_json::from_str(&comment.text).unwrap_or_else(|err| {
         warn!(
@@ -132,7 +142,7 @@ pub fn stats_from_tag(rel_path: &std::path::Path) -> Statistics {
           skip_cnt: 0,
         }
       });
-      rating
+      Ok(rating)
     },
   )
 }
@@ -178,7 +188,7 @@ pub fn get_stats(
     songs.push(path::PathBuf::from(
       client
         .currentsong()
-        .unwrap()
+        .try_unwrap("failed to get current song")
         .unwrap_or_else(|| {
           error!("failed to get current song from mpd");
           exit(1);
@@ -186,16 +196,18 @@ pub fn get_stats(
         .file,
     ));
   } else {
-    for user_path in args.values_of("path").unwrap_or_else(|| {
-      error!("no song is specified!!");
-      exit(1);
-    }) {
+    for user_path in args.values_of("path").unwrap() {
       songs.push(path::PathBuf::from(user_path));
     }
   };
   for song in songs {
     let rates = if use_tags {
-      stats_from_tag(&song)
+      stats_from_tag(&song).unwrap_or_else(|err|{
+          if let Error::FileNotExists= err {
+               error!("{:?} does'n exists", song);
+          }
+          exit(1);
+      })
     } else {
       stats_from_sticker(client, &song)
     };
@@ -226,7 +238,7 @@ pub fn set_stats(
     path::PathBuf::from(
       client
         .currentsong()
-        .unwrap()
+        .try_unwrap("failed to get current song")
         .unwrap_or_else(|| {
           error!("failed to get current song from mpd");
           exit(1);
@@ -234,57 +246,32 @@ pub fn set_stats(
         .file,
     )
   } else {
-    path::PathBuf::from(subc.value_of("path").unwrap_or_else(|| {
-      error!("missing song path this should be checked during init. please report an issue");
-      exit(1)
-    }))
+    path::PathBuf::from(subc.value_of("path").unwrap()) // path is required variable
   };
   let stat = if subc.is_present("stats") {
-    serde_json::from_str::<Statistics>(subc.value_of("stats").unwrap()).unwrap_or_else(|err| {
-      match err.classify() {
-        serde_json::error::Category::Syntax => {
-          error!(
-            "invalid json syntax at {}:{}, please use -Sh for example",
-            err.line(),
-            err.column()
-          );
-        }
-        serde_json::error::Category::Data => {
-          error!(
-            "invalid input data format at {}:{} , please use -Sh for example",
-            err.line(),
-            err.column()
-          );
-        }
-        _ => {
-          error!("invalid input stats, please use -Sh for example");
-        }
-      }
-      exit(1);
-    })
+    serde_json::from_str::<Statistics>(subc.value_of("stats").expect("value of stats is not present, please report")).try_unwrap("error while parsing parsing Stats")
   } else {
     let mut curr_stat = if use_tags {
-      stats_from_tag(&song_file)
+      stats_from_tag(&song_file).unwrap_or_else(|err|{
+          if let Error::FileNotExists= err {
+               error!("{:?} does'n exists", song_file);
+          }
+          exit(1);
+      })
     } else {
       stats_from_sticker(client, &song_file)
     };
     if subc.is_present("play_cnt") {
       curr_stat.play_cnt = subc
         .value_of("play_cnt")
-        .unwrap_or_else(|| {
-          warn!("play_cnt value is not set, but is present is set, please report");
-          exit(1);
-        })
+        .unwrap()       // required variable
         .parse()
         .expect("expected integer value for play_cnt");
     }
     if subc.is_present("skip_cnt") {
       curr_stat.skip_cnt = subc
         .value_of("skip_cnt")
-        .unwrap_or_else(|| {
-          warn!("skip_cnt value is not set, but is present is set, please report");
-          exit(1);
-        })
+        .unwrap() // required variable
         .parse()
         .expect("expected integer value for skip_cnt");
     }

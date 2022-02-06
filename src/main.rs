@@ -5,6 +5,7 @@
 //! This is written for mpd as plugin. To work you have to have mpd running.
 mod listener;
 mod stats;
+mod error;
 use clap::{App, Arg};
 use log::{debug, error, trace};
 use once_cell::sync::OnceCell;
@@ -24,6 +25,7 @@ fn main() {
         .arg(
             Arg::new("verbose")
                 .short('v')
+                .global(true)
                 .multiple_occurrences(true)
                 .long("verbose")
                 .help("sets the verbose level, use multiple times for more verbosity")
