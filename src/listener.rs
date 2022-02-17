@@ -1,7 +1,8 @@
 //! This module handles functions relating listening to events from mpd and setting stats to a song based on the
 //! events
+use crate::error::CustomEror;
 use crate::stats;
-use log::{debug, trace, error};
+use log::{debug, error, info, trace, warn};
 use mpd::{idle::Subsystem, Idle};
 use notify_rust::{Notification, Urgency};
 use std::io::{Read, Write};
@@ -69,7 +70,7 @@ fn eval_player_events(
   timer: &std::time::Instant,
 ) -> Action {
   trace!("handling player_event()");
-  let curr_state = client.status().unwrap_or_else(|err|{error!("may be mpd connection failed"); exit(1)});
+  let curr_state = client.status().try_unwrap("failed to get current status");
   // if state is paused or stopped then no need to rate. if last state is paused then its
   // just start so no need to rate either
   if curr_state.state == mpd::status::State::Stop
@@ -137,7 +138,23 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
   // if stickers are used then only relative path provided by mpd is used so empty buf is
   // initialized
   loop {
-    let spath = PathBuf::from(client.currentsong().unwrap().unwrap().file);
+    let current_song_path = PathBuf::from(
+      loop {
+        if let Some(song) = client
+          .currentsong()
+          .try_unwrap("getting current song failed")
+        {
+          break song;
+        } else {
+          info!("no current song");
+          client
+            .wait(&[])
+            .try_unwrap("client wait failed {err:?}. report!!!");
+          trace!("woke up from stop state");
+        }
+      }
+      .file,
+    );
     let last_state = client.status().unwrap();
     let start_time = timer.elapsed();
     // TODO: remove unwrap and add a closure to wait for the state change, may be if state is stopped or no song is in queue then this will error
@@ -156,9 +173,9 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                   .body(
                     format!(
                       "Played: {}",
-                      &spath
+                      &current_song_path
                         .file_name()
-                        .map_or(spath.to_str(), |pth| pth.to_str())
+                        .map_or(current_song_path.to_str(), |pth| pth.to_str())
                         .unwrap()
                     )
                     .as_ref(),
@@ -167,17 +184,15 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                   .ok();
                 // TODO: optimise this in better way
                 let mut stats = if use_tags {
-                  stats::stats_from_tag(&spath).unwrap_or_else(|err|{
-                      todo!()
-                  })
+                  stats::stats_from_tag(&current_song_path).unwrap_or_else(|err| todo!())
                 } else {
-                  stats::stats_from_sticker(client, &spath)
+                  stats::stats_from_sticker(client, &current_song_path)
                 };
                 stats.played();
                 if use_tags {
-                  stats::stats_to_tag(&spath, &stats)
+                  stats::stats_to_tag(&current_song_path, &stats)
                 } else {
-                  stats::stats_to_sticker(client, &spath, &stats)
+                  stats::stats_to_sticker(client, &current_song_path, &stats)
                 };
               }
               Action::Skipped => {
@@ -186,9 +201,9 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                   .body(
                     format!(
                       "Skipped: {}",
-                      &spath
+                      &current_song_path
                         .file_name()
-                        .map_or(spath.to_str(), |pth| pth.to_str())
+                        .map_or(current_song_path.to_str(), |pth| pth.to_str())
                         .unwrap()
                     )
                     .as_ref(),
@@ -197,17 +212,15 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                   .ok();
                 // TODO: optimise this in better way
                 let mut stats = if use_tags {
-                  stats::stats_from_tag(&spath).unwrap_or_else(|err|{
-                  todo!()
-                  })
+                  stats::stats_from_tag(&current_song_path).unwrap_or_else(|err| todo!())
                 } else {
-                  stats::stats_from_sticker(client, &spath)
+                  stats::stats_from_sticker(client, &current_song_path)
                 };
                 stats.skipped();
                 if use_tags {
-                  stats::stats_to_tag(&spath, &stats)
+                  stats::stats_to_tag(&current_song_path, &stats)
                 } else {
-                  stats::stats_to_sticker(client, &spath, &stats)
+                  stats::stats_to_sticker(client, &current_song_path, &stats)
                 };
               }
             };
