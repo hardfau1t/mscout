@@ -2,6 +2,18 @@
 use log::error;
 use std::process::exit;
 
+
+/// Error type
+#[derive(Debug)]
+pub enum Error {
+  /// when the requested file doesn't exists.
+  FileNotExists,
+  /// Connection with mpd failed
+  ConnectionFailed,
+  /// unknown Error
+  Unknown,
+}
+
 /// Custom trait to implement standard expect method but does some logging and exits.
 pub trait CustomEror<T> {
   /// if Ok then returns the value else does logging and returns.

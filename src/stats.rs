@@ -1,13 +1,14 @@
 //! This module has functions related to statitics, manually setting them and displaying them.
 use crate::{
+  error::{CustomEror, Error},
   listener::{self, ConnType, MP_DESC},
-  ROOT_DIR, error::CustomEror,
+  ROOT_DIR,
 };
 use id3::{frame::Comment, Tag};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
-use std::process::exit;
 use std::path;
+use std::process::exit;
 
 // #[derive(Debug)]
 // enum Operation {
@@ -24,17 +25,6 @@ pub struct Statistics {
   play_cnt: u32,
   /// number of times a song is skipped.
   skip_cnt: u32,
-}
-
-/// Error type
-#[derive(Debug)]
-pub enum Error{
-    /// when the requested file doesn't exists.
-    FileNotExists,
-    /// Connection with mpd failed
-    ConnectionFailed,
-    /// unknown Error
-    Unknown,
 }
 
 impl Statistics {
@@ -88,7 +78,7 @@ pub fn stats_to_sticker(
   client: &mut mpd::Client<ConnType>,
   spath: &std::path::Path,
   stats: &Statistics,
-) {
+) -> Result<(), Error> {
   info!("setting stats {:?} to mpd database for {:?}", stats, spath);
   client
     .set_sticker(
@@ -97,7 +87,11 @@ pub fn stats_to_sticker(
       MP_DESC,
       &serde_json::to_string(stats).expect("Couldn't dump stats to json"),
     )
-    .try_unwrap("Couldn't dump to mpd  database");
+    .map_err(|err| {
+      error!("Couldn't dump to mpd  database due to {:?}", err);
+      Error::ConnectionFailed
+    })?;
+  Ok(())
 }
 
 /// extracts the statistics from eyed3 tags(from comments).
@@ -108,16 +102,20 @@ pub fn stats_from_tag(rel_path: &std::path::Path) -> Result<Statistics, Error> {
   ));
   spath.push(rel_path);
   debug!("songs full path is {:#?}", spath);
-  let tag = Tag::read_from_path(&spath).unwrap_or_else(|err: id3::Error| match err.kind {
+  let tag = Tag::read_from_path(&spath).or_else(|err: id3::Error| match err.kind {
     id3::ErrorKind::NoTag => {
       warn!("no tag found creating a new id3 tag");
-      Tag::new()
+      Ok(Tag::new())
     }
     _ => {
-      error!(" error while opening tag {:?} for song {:?}", err.description, rel_path);
-      exit(1)
+      error!(
+        " error while opening tag {:?} for song {:?}",
+        err.description, rel_path
+      );
+      Err(Error::FileNotExists)
     }
-  });
+  })?;
+  // return Err(Error::FileNotExists);
   for com in tag.comments() {
     debug!("available comments are {:?}", com);
     if com.description == MP_DESC {
@@ -149,22 +147,22 @@ pub fn stats_from_tag(rel_path: &std::path::Path) -> Result<Statistics, Error> {
 
 /// set the statistics to the eyed3 tags(from comments).
 /// spath : absolute path to the song.
-pub fn stats_to_tag(spath: &std::path::Path, stats: &Statistics) {
+pub fn stats_to_tag(spath: &std::path::Path, stats: &Statistics) -> Result<(), Error> {
   let mut root = path::PathBuf::from(ROOT_DIR.get().expect(
     "statistics to tag requires full path, try to use --socket-file or set root-dir manually",
   ));
   root.push(spath);
   debug!("setting tag to {:#?}", root);
-  let mut tag = Tag::read_from_path(&root).unwrap_or_else(|err: id3::Error| match err.kind {
+  let mut tag = Tag::read_from_path(&root).or_else(|err: id3::Error| match err.kind {
     id3::ErrorKind::NoTag => {
       warn!("no tag found creating a new id3 tag");
-      Tag::new()
+      Ok(Tag::new())
     }
     _ => {
       error!(" error while opening tag {:?}", err.description);
-      exit(1)
+      Err(Error::FileNotExists)
     }
-  });
+  })?;
   let comment: Comment = Comment {
     lang: "eng".to_string(),
     description: MP_DESC.to_string(),
@@ -175,6 +173,7 @@ pub fn stats_to_tag(spath: &std::path::Path, stats: &Statistics) {
   tag
     .write_to_path(&root, id3::Version::Id3v24)
     .unwrap_or_else(|err| warn!("failed to write tag {}", err));
+  Ok(())
 }
 
 /// extracts song statistics from id3 metadata or mpd's database based on use-tags flags
@@ -191,7 +190,7 @@ pub fn get_stats(
         .try_unwrap("failed to get current song")
         .unwrap_or_else(|| {
           error!("failed to get current song from mpd");
-          exit(1);
+          exit(1); // exit if current song is not available
         })
         .file,
     ));
@@ -202,11 +201,11 @@ pub fn get_stats(
   };
   for song in songs {
     let rates = if use_tags {
-      stats_from_tag(&song).unwrap_or_else(|err|{
-          if let Error::FileNotExists= err {
-               error!("{:?} does'n exists", song);
-          }
-          exit(1);
+      stats_from_tag(&song).unwrap_or_else(|err| {
+        if let Error::FileNotExists = err {
+          error!("{:?} does'n exists", song);
+        }
+        exit(1);
       })
     } else {
       stats_from_sticker(client, &song)
@@ -249,14 +248,19 @@ pub fn set_stats(
     path::PathBuf::from(subc.value_of("path").unwrap()) // path is required variable
   };
   let stat = if subc.is_present("stats") {
-    serde_json::from_str::<Statistics>(subc.value_of("stats").expect("value of stats is not present, please report")).try_unwrap("error while parsing parsing Stats")
+    serde_json::from_str::<Statistics>(
+      subc
+        .value_of("stats")
+        .expect("value of stats is not present, please report"),
+    )
+    .try_unwrap("error while parsing parsing Stats")
   } else {
     let mut curr_stat = if use_tags {
-      stats_from_tag(&song_file).unwrap_or_else(|err|{
-          if let Error::FileNotExists= err {
-               error!("{:?} does'n exists", song_file);
-          }
-          exit(1);
+      stats_from_tag(&song_file).unwrap_or_else(|err| {
+        if let Error::FileNotExists = err {
+          error!("{:?} does'n exists", song_file);
+        }
+        exit(1);
       })
     } else {
       stats_from_sticker(client, &song_file)
@@ -264,7 +268,7 @@ pub fn set_stats(
     if subc.is_present("play_cnt") {
       curr_stat.play_cnt = subc
         .value_of("play_cnt")
-        .unwrap()       // required variable
+        .unwrap() // required variable
         .parse()
         .expect("expected integer value for play_cnt");
     }
