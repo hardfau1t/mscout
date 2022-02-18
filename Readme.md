@@ -4,7 +4,7 @@ Its a plugin for mpd, which handles rating for each song based on play count and
 ----
 ## Requirements
 1. mpd
-2. rust build tools <optional>
+2. rust `<optional only if building from source>`
 
 ----
 
