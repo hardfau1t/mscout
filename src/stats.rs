@@ -5,7 +5,7 @@ use crate::{
   ROOT_DIR,
 };
 use id3::{frame::Comment, Tag};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 use std::path;
 use std::process::exit;
@@ -47,18 +47,21 @@ impl Statistics {
 pub fn stats_from_sticker(
   client: &mut mpd::Client<ConnType>,
   spath: &std::path::Path,
-) -> Statistics {
-  info!("getting stats from  mpd database for {:?}", spath);
+) -> Result<Statistics, Error> {
+  trace!("getting stats from  mpd database for {:?}", spath);
   // get the stats from sticker, if not found then return 0,0
   client
     .sticker("song", spath.to_str().unwrap(), MP_DESC)
-    .map_or(
-      Statistics {
-        play_cnt: 0,
-        skip_cnt: 0,
+    .map_or_else(
+      |err| match err {
+        mpd::error::Error::Parse(_) => Ok(Statistics {
+          play_cnt: 0,
+          skip_cnt: 0,
+        }),
+        _ => Err(Error::ConnectionFailed),
       },
       |sticker| {
-        serde_json::from_str(&sticker).unwrap_or_else(|err| {
+        Ok(serde_json::from_str(&sticker).unwrap_or_else(|err| {
           warn!("couldn't parse sticker: {:?}", err);
           client
             .delete_sticker("song", spath.to_str().unwrap(), MP_DESC) // if the sticker is invalid then remove it.
@@ -67,7 +70,7 @@ pub fn stats_from_sticker(
             play_cnt: 0,
             skip_cnt: 0,
           }
-        })
+        }))
       },
     )
 }
@@ -208,7 +211,10 @@ pub fn get_stats(
         exit(1);
       })
     } else {
-      stats_from_sticker(client, &song)
+      stats_from_sticker(client, &song).unwrap_or_else(|err| {
+        error!("Couldn't get the sticker due to {:?}", err);
+        exit(1);
+      })
     };
     if args.is_present("stats") {
       if args.is_present("json") {
@@ -263,7 +269,10 @@ pub fn set_stats(
         exit(1);
       })
     } else {
-      stats_from_sticker(client, &song_file)
+      stats_from_sticker(client, &song_file).unwrap_or_else(|err| {
+        error!("Couldn't Get the stats from sticker: {:?}", err);
+        exit(1);
+      })
     };
     if subc.is_present("play_cnt") {
       curr_stat.play_cnt = subc
@@ -282,9 +291,12 @@ pub fn set_stats(
     curr_stat
   };
 
-  if use_tags {
-    stats_to_tag(&song_file, &stat);
+  match if use_tags {
+    stats_to_tag(&song_file, &stat)
   } else {
-    stats_to_sticker(client, &song_file, &stat);
+    stats_to_sticker(client, &song_file, &stat)
+  } {
+    Ok(_) => info!("stats {stat:?} set to {song_file:?}"),
+    Err(_) => error!("Failed to set stats"),
   }
 }

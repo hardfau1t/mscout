@@ -2,12 +2,11 @@
 //! events
 use crate::error::CustomEror;
 use crate::stats;
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, trace};
 use mpd::{idle::Subsystem, Idle};
 use notify_rust::{Notification, Urgency};
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::process::exit;
 use std::time::{Duration, Instant};
 
 /// header name which will be used on either mpd's sticker database or tags for identifications
@@ -183,17 +182,23 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                   .show()
                   .ok();
                 // TODO: optimise this in better way
-                let mut stats = if use_tags {
-                  stats::stats_from_tag(&current_song_path).unwrap_or_else(|err| todo!())
+                if let Ok(mut stats) = if use_tags {
+                  stats::stats_from_tag(&current_song_path)
                 } else {
                   stats::stats_from_sticker(client, &current_song_path)
-                };
-                stats.played();
-                if use_tags {
-                  stats::stats_to_tag(&current_song_path, &stats)
+                } {
+                  stats.played();
+                  match if use_tags {
+                    stats::stats_to_tag(&current_song_path, &stats)
+                  } else {
+                    stats::stats_to_sticker(client, &current_song_path, &stats)
+                  }{
+                      Ok(_)=>(),
+                      Err(_)=>error!("skipped rating: Couldn't set the stats"),
+                  }
                 } else {
-                  stats::stats_to_sticker(client, &current_song_path, &stats)
-                };
+                  error!("skipped rating, Couldn't get the stats");
+                }
               }
               Action::Skipped => {
                 notif
@@ -211,17 +216,23 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                   .show()
                   .ok();
                 // TODO: optimise this in better way
-                let mut stats = if use_tags {
-                  stats::stats_from_tag(&current_song_path).unwrap_or_else(|err| todo!())
+                if let Ok(mut stats) = if use_tags {
+                  stats::stats_from_tag(&current_song_path)
                 } else {
                   stats::stats_from_sticker(client, &current_song_path)
-                };
-                stats.skipped();
-                if use_tags {
-                  stats::stats_to_tag(&current_song_path, &stats)
+                } {
+                  stats.skipped();
+                  match if use_tags {
+                    stats::stats_to_tag(&current_song_path, &stats)
+                  } else {
+                    stats::stats_to_sticker(client, &current_song_path, &stats)
+                  }{
+                      Ok(_)=>(),
+                      Err(_)=> error!("skipped rating: Couldn't set the stats"),
+                  }
                 } else {
-                  stats::stats_to_sticker(client, &current_song_path, &stats)
-                };
+                  error!("skipped rating since no stats found");
+                }
               }
             };
           }
