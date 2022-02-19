@@ -41,6 +41,15 @@ impl Statistics {
   }
 }
 
+impl std::default::Default for Statistics {
+  fn default() -> Self {
+    Self {
+      play_cnt: 0,
+      skip_cnt: 0,
+    }
+  }
+}
+
 /// gets the stats from mpd sticker database.
 /// where spath is the path to the song relative to mpd's directory
 pub fn stats_from_sticker(

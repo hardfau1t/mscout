@@ -144,22 +144,20 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                   .show()
                   .ok();
                 // TODO: optimise this in better way
-                if let Ok(mut stats) = if use_tags {
+                let mut stats = if use_tags {
                   stats::stats_from_tag(&current_song_path)
                 } else {
                   stats::stats_from_sticker(client, &current_song_path)
-                } {
-                  stats.played();
-                  match if use_tags {
-                    stats::stats_to_tag(&current_song_path, &stats)
-                  } else {
-                    stats::stats_to_sticker(client, &current_song_path, &stats)
-                  }{
-                      Ok(_)=>(),
-                      Err(_)=>error!("skipped rating: Couldn't set the stats"),
-                  }
+                }
+                .unwrap_or_default();
+                stats.played();
+                match if use_tags {
+                  stats::stats_to_tag(&current_song_path, &stats)
                 } else {
-                  error!("skipped rating, Couldn't get the stats");
+                  stats::stats_to_sticker(client, &current_song_path, &stats)
+                } {
+                  Ok(_) => (),
+                  Err(_) => error!("skipped rating: Couldn't set the stats"),
                 }
               }
               Action::Skipped => {
@@ -178,22 +176,20 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                   .show()
                   .ok();
                 // TODO: optimise this in better way
-                if let Ok(mut stats) = if use_tags {
+                let mut stats = if use_tags {
                   stats::stats_from_tag(&current_song_path)
                 } else {
                   stats::stats_from_sticker(client, &current_song_path)
-                } {
-                  stats.skipped();
-                  match if use_tags {
-                    stats::stats_to_tag(&current_song_path, &stats)
-                  } else {
-                    stats::stats_to_sticker(client, &current_song_path, &stats)
-                  }{
-                      Ok(_)=>(),
-                      Err(_)=> error!("skipped rating: Couldn't set the stats"),
-                  }
+                }
+                .unwrap_or_default();
+                stats.skipped();
+                match if use_tags {
+                  stats::stats_to_tag(&current_song_path, &stats)
                 } else {
-                  error!("skipped rating since no stats found");
+                  stats::stats_to_sticker(client, &current_song_path, &stats)
+                } {
+                  Ok(_) => (),
+                  Err(_) => error!("skipped rating: Couldn't set the stats"),
                 }
               }
             };
