@@ -11,6 +11,44 @@ use log::{debug, error, trace};
 use once_cell::sync::OnceCell;
 use std::path::Path;
 use std::process::exit;
+use std::io::{Read, Write};
+
+/// header name which will be used on either mpd's sticker database or tags for identifications
+pub const MP_DESC: &str = "mp_rater";
+
+/// defines connection type for the mpd.
+#[derive(Debug)]
+pub enum ConnType {
+  /// connects through linux socket file
+  Stream(std::os::unix::net::UnixStream),
+  /// connects using normal network sockets
+  Socket(std::net::TcpStream),
+}
+
+impl Read for ConnType {
+  fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    match self {
+      ConnType::Stream(s) => s.read(buf),
+      ConnType::Socket(s) => s.read(buf),
+    }
+  }
+}
+
+impl Write for ConnType {
+  fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+    match self {
+      ConnType::Stream(s) => s.write(buf),
+      ConnType::Socket(s) => s.write(buf),
+    }
+  }
+
+  fn flush(&mut self) -> std::io::Result<()> {
+    match self {
+      ConnType::Stream(s) => s.flush(),
+      ConnType::Socket(s) => s.flush(),
+    }
+  }
+}
 
 /// contains root dir string optionally either if the user passes through cmdline or if the unix
 /// socket file is given
@@ -172,11 +210,11 @@ fn main() {
   let con_t = if arguments.is_present("socket-path") {
     let stream = arguments.value_of("socket-path").unwrap();
     debug!("connecting to unix stream {}", stream);
-    listener::ConnType::Stream(std::os::unix::net::UnixStream::connect(stream).unwrap())
+    ConnType::Stream(std::os::unix::net::UnixStream::connect(stream).unwrap())
   } else if arguments.is_present("socket-address") {
     let address = arguments.value_of("socket-address").unwrap();
     debug!("connecting to TcpStream {}", address);
-    listener::ConnType::Socket(std::net::TcpStream::connect(address).unwrap())
+    ConnType::Socket(std::net::TcpStream::connect(address).unwrap())
   } else {
     unreachable!()
   };

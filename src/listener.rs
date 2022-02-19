@@ -1,50 +1,12 @@
 //! This module handles functions relating listening to events from mpd and setting stats to a song based on the
 //! events
 use crate::error::CustomEror;
-use crate::stats;
+use crate::{stats, ConnType};
 use log::{debug, error, info, trace};
 use mpd::{idle::Subsystem, Idle};
 use notify_rust::{Notification, Urgency};
-use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-
-/// header name which will be used on either mpd's sticker database or tags for identifications
-pub const MP_DESC: &str = "mp_rater";
-
-/// defines connection type for the mpd.
-#[derive(Debug)]
-pub enum ConnType {
-  /// connects through linux socket file
-  Stream(std::os::unix::net::UnixStream),
-  /// connects using normal network sockets
-  Socket(std::net::TcpStream),
-}
-
-impl Read for ConnType {
-  fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-    match self {
-      ConnType::Stream(s) => s.read(buf),
-      ConnType::Socket(s) => s.read(buf),
-    }
-  }
-}
-
-impl Write for ConnType {
-  fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-    match self {
-      ConnType::Stream(s) => s.write(buf),
-      ConnType::Socket(s) => s.write(buf),
-    }
-  }
-
-  fn flush(&mut self) -> std::io::Result<()> {
-    match self {
-      ConnType::Stream(s) => s.flush(),
-      ConnType::Socket(s) => s.flush(),
-    }
-  }
-}
 
 /// specifies last action of the mpd event. It is different from mpd events that mpd events only
 /// mentions subsystems which can't be used to determine the status without some calculations

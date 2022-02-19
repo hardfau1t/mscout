@@ -1,8 +1,7 @@
 //! This module has functions related to statitics, manually setting them and displaying them.
 use crate::{
   error::{CustomEror, Error},
-  listener::{self, ConnType, MP_DESC},
-  ROOT_DIR,
+  ConnType, MP_DESC, ROOT_DIR,
 };
 use id3::{frame::Comment, Tag};
 use log::{debug, error, info, trace, warn};
@@ -180,11 +179,7 @@ pub fn stats_to_tag(spath: &std::path::Path, stats: &Statistics) -> Result<(), E
 }
 
 /// extracts song statistics from id3 metadata or mpd's database based on use-tags flags
-pub fn get_stats(
-  client: &mut mpd::Client<listener::ConnType>,
-  args: &clap::ArgMatches,
-  use_tags: bool,
-) {
+pub fn get_stats(client: &mut mpd::Client<ConnType>, args: &clap::ArgMatches, use_tags: bool) {
   let mut songs = Vec::new();
   if args.is_present("current") {
     songs.push(path::PathBuf::from(
@@ -232,11 +227,7 @@ pub fn get_stats(
 }
 
 /// sets the stats of a custom user stats
-pub fn set_stats(
-  client: &mut mpd::Client<listener::ConnType>,
-  subc: &clap::ArgMatches,
-  use_tags: bool,
-) {
+pub fn set_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, use_tags: bool) {
   // get the song to set stats, if current is given then get it from mpd or else from path
   // argument
   let song_file = if subc.is_present("current") {
