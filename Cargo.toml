@@ -1,14 +1,15 @@
 [package]
 edition = "2021"
 name = "mp_rater"
-version = "0.1.0"
+version = "0.2.0"
 [dependencies]
 clap = "3.0.7"
 env_logger = "0.9"
 id3 = "0.6"
 once_cell = "*"
 log = "0.4"
-mpd = "*"
+# till https://github.com/kstep/rust-mpd/pull/49 this PR is merged use this fork
+mpd = { git = "https://github.com/hardfau18/rust-mpd", branch = "dev"}
 notify-rust = "*"
 serde_json = "1.0"
 

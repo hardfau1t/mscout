@@ -1,6 +1,8 @@
 # mp_rater
 Its a plugin for mpd, which handles rating for each song based on play count and skip counts.
 
+NOTE: This doesn't work if consume is enabled
+
 ----
 ## Requirements
 1. mpd

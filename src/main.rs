@@ -3,15 +3,15 @@
 
 //! This crate provides a way to set or get ratings for songs based on listening statistics.
 //! This is written for mpd as plugin. To work you have to have mpd running.
+mod error;
 mod listener;
 mod stats;
-mod error;
 use clap::{App, Arg};
 use log::{debug, error, trace};
 use once_cell::sync::OnceCell;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process::exit;
-use std::io::{Read, Write};
 
 /// header name which will be used on either mpd's sticker database or tags for identifications
 pub const MP_DESC: &str = "mp_rater";
@@ -19,35 +19,35 @@ pub const MP_DESC: &str = "mp_rater";
 /// defines connection type for the mpd.
 #[derive(Debug)]
 pub enum ConnType {
-  /// connects through linux socket file
-  Stream(std::os::unix::net::UnixStream),
-  /// connects using normal network sockets
-  Socket(std::net::TcpStream),
+    /// connects through linux socket file
+    Stream(std::os::unix::net::UnixStream),
+    /// connects using normal network sockets
+    Socket(std::net::TcpStream),
 }
 
 impl Read for ConnType {
-  fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-    match self {
-      ConnType::Stream(s) => s.read(buf),
-      ConnType::Socket(s) => s.read(buf),
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            ConnType::Stream(s) => s.read(buf),
+            ConnType::Socket(s) => s.read(buf),
+        }
     }
-  }
 }
 
 impl Write for ConnType {
-  fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-    match self {
-      ConnType::Stream(s) => s.write(buf),
-      ConnType::Socket(s) => s.write(buf),
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            ConnType::Stream(s) => s.write(buf),
+            ConnType::Socket(s) => s.write(buf),
+        }
     }
-  }
 
-  fn flush(&mut self) -> std::io::Result<()> {
-    match self {
-      ConnType::Stream(s) => s.flush(),
-      ConnType::Socket(s) => s.flush(),
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            ConnType::Stream(s) => s.flush(),
+            ConnType::Socket(s) => s.flush(),
+        }
     }
-  }
 }
 
 /// contains root dir string optionally either if the user passes through cmdline or if the unix
@@ -55,8 +55,8 @@ impl Write for ConnType {
 static ROOT_DIR: OnceCell<String> = OnceCell::new();
 
 fn main() {
-  let mut builder = env_logger::builder();
-  let arguments = App::new("mp rater")
+    let mut builder = env_logger::builder();
+    let arguments = App::new("mp rater")
         .version("0.1.0")
         .author("hardfau18 <the.qu1rky.b1t@gmail.com>")
         .about("rates song with skip/rate count for mpd")
@@ -193,49 +193,49 @@ fn main() {
             )
         .get_matches();
 
-  // set the verbosity
-  match arguments.occurrences_of("verbose") {
-    0 => builder.filter_level(log::LevelFilter::Error).init(),
-    1 => builder.filter_level(log::LevelFilter::Warn).init(),
-    2 => builder.filter_level(log::LevelFilter::Info).init(),
-    3 => builder.filter_level(log::LevelFilter::Debug).init(),
-    4 => builder.filter_level(log::LevelFilter::Trace).init(),
-    _ => {
-      builder.filter_level(log::LevelFilter::Trace).init();
-      trace!("wait one of the rust expert is coming to debug");
+    // set the verbosity
+    match arguments.occurrences_of("verbose") {
+        0 => builder.filter_level(log::LevelFilter::Error).init(),
+        1 => builder.filter_level(log::LevelFilter::Warn).init(),
+        2 => builder.filter_level(log::LevelFilter::Info).init(),
+        3 => builder.filter_level(log::LevelFilter::Debug).init(),
+        4 => builder.filter_level(log::LevelFilter::Trace).init(),
+        _ => {
+            builder.filter_level(log::LevelFilter::Trace).init();
+            trace!("wait one of the rust expert is coming to debug");
+        }
     }
-  }
-  debug!("log_level set to {:?}", log::max_level());
+    debug!("log_level set to {:?}", log::max_level());
 
-  let con_t = if arguments.is_present("socket-path") {
-    let stream = arguments.value_of("socket-path").unwrap();
-    debug!("connecting to unix stream {}", stream);
-    ConnType::Stream(std::os::unix::net::UnixStream::connect(stream).unwrap())
-  } else if arguments.is_present("socket-address") {
-    let address = arguments.value_of("socket-address").unwrap();
-    debug!("connecting to TcpStream {}", address);
-    ConnType::Socket(std::net::TcpStream::connect(address).unwrap())
-  } else {
-    unreachable!()
-  };
-  let mut client = mpd::Client::new(con_t).unwrap();
-  let use_tags = arguments.is_present("use-tags");
-  if use_tags {
-    if arguments.is_present("socket-path") {
-      ROOT_DIR.set(client.music_directory().unwrap()).unwrap();
-    } else if arguments.is_present("root-dir") {
-      ROOT_DIR
-        .set(arguments.value_of("root-dir").unwrap().to_string())
-        .unwrap();
+    let con_t = if arguments.is_present("socket-path") {
+        let stream = arguments.value_of("socket-path").unwrap();
+        debug!("connecting to unix stream {}", stream);
+        ConnType::Stream(std::os::unix::net::UnixStream::connect(stream).unwrap())
+    } else if arguments.is_present("socket-address") {
+        let address = arguments.value_of("socket-address").unwrap();
+        debug!("connecting to TcpStream {}", address);
+        ConnType::Socket(std::net::TcpStream::connect(address).unwrap())
     } else {
-      error!("root dir is not found, either use socket-path or mention root_dir manually");
-      exit(1);
+        unreachable!()
+    };
+    let mut client = mpd::Client::new(con_t).unwrap();
+    let use_tags = arguments.is_present("use-tags");
+    if use_tags {
+        if arguments.is_present("socket-path") {
+            ROOT_DIR.set(client.music_directory().unwrap()).unwrap();
+        } else if arguments.is_present("root-dir") {
+            ROOT_DIR
+                .set(arguments.value_of("root-dir").unwrap().to_string())
+                .unwrap();
+        } else {
+            error!("root dir is not found, either use socket-path or mention root_dir manually");
+            exit(1);
+        }
     }
-  }
-  match arguments.subcommand() {
-    Some(("listen", subm)) => listener::listen(&mut client, subm, use_tags),
-    Some(("get-stats", subm)) => stats::get_stats(&mut client, subm, use_tags),
-    Some(("set-stats", subm)) => stats::set_stats(&mut client, subm, use_tags),
-    _ => {}
-  }
+    match arguments.subcommand() {
+        Some(("listen", subm)) => listener::listen(&mut client, subm, use_tags),
+        Some(("get-stats", subm)) => stats::get_stats(&mut client, subm, use_tags),
+        Some(("set-stats", subm)) => stats::set_stats(&mut client, subm, use_tags),
+        _ => {}
+    }
 }
