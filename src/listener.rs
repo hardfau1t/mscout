@@ -7,6 +7,7 @@ use log::{debug, error, info, trace, warn};
 use mpd::{idle::Subsystem, Idle};
 use notify_rust::{Notification, Urgency};
 use std::path::PathBuf;
+use std::process::exit;
 use std::time::Instant;
 
 /// alternate to mpd::song::Id with implementation of required traits
@@ -246,27 +247,30 @@ impl ListenerState {
     }
 }
 
-// /// listener struct listens for mpd events and based on it manipulates the states and ratings
-// struct Listener<'a> {
-//   /// state of the listener
-//   state: ListenerState,
-//   /// mpd client which listener will listen for events
-//   client: &'a mut mpd::client::Client,
-// }
-//
-// impl<'a> Listener<'a> {
-//   /// Creates a new listener struct
-//   fn new(client: &'a mut mpd::client::Client) -> Self {
-//     Self {
-//       state: ListenerState::default(),
-//       client,
-//     }
-//   }
-// }
-
+/// checks if any other instance of listener is running, if not then create flag file indicating that a listener is running
+fn check_instance() {
+    if let Err(err) = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open("/tmp/mp_rater.lck")
+    {
+        match err.kind() {
+            std::io::ErrorKind::AlreadyExists => {
+                println!(
+                    "Already another instance is running!!!\n\
+                    kill that instance to start another.\n\
+                    if not running then remove /tmp/mp_rater.lck file"
+                );
+            }
+            _ => error!("failed to check for instance {:?}", err),
+        }
+        exit(1);
+    }
+}
 /// listens to mpd events sets the statistics for the song
 /// use_tags: if its true then eyed3 tags will be used else mpd stickers are used to store stats
 pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_tags: bool) -> ! {
+    check_instance();
     let mut notif = Notification::new();
     notif
         .summary("mp_rater")
