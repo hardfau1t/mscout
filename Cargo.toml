@@ -12,6 +12,7 @@ log = "0.4"
 mpd = { git = "https://github.com/hardfau18/rust-mpd", branch = "dev"}
 notify-rust = "*"
 serde_json = "1.0"
+signal-hook = "*"
 
 [dependencies.serde]
 features = ["derive"]

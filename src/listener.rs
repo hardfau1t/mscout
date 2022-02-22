@@ -4,6 +4,7 @@ use crate::{stats, ConnType};
 // logging macros no need to warn if unused
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
+use signal_hook::{consts::TERM_SIGNALS, iterator::Signals};
 use mpd::{idle::Subsystem, Idle};
 use notify_rust::{Notification, Urgency};
 use std::path::PathBuf;
@@ -78,12 +79,12 @@ impl ListenerState {
         match *self {
             ListenerState::Playing { curr, next, st } => match status.state {
                 mpd::State::Stop => {
-                    trace!("{:?} to {:?}", self, status.state);
+                    info!("{:?} to {:?}", self, status.state);
                     *self = ListenerState::Invalid;
                     Action::WhoCares
                 }
                 mpd::State::Pause => {
-                    trace!("{:?} to {:?}", self, status.state);
+                    info!("{:?} to {:?}", self, status.state);
                     let mut ret = Action::WhoCares;
                     if let Some(s) = next {
                         // if single is set then it is possible that state to change from play to paused and song changed
@@ -109,7 +110,7 @@ impl ListenerState {
                     ret
                 }
                 mpd::State::Play => {
-                    trace!("{:?} to {:?}", self, status.state);
+                    info!("{:?} to {:?}", self, status.state);
                     let mut ret = Action::WhoCares;
                     // if the current song is same as previous and repeat is enabled then it is possibl that song is played
                     if curr.0 == status.song.unwrap().into()
@@ -151,13 +152,13 @@ impl ListenerState {
             // check if the next is currrent playing song then it is skipped. else just update the state
             ListenerState::Paused { curr, next } => match status.state {
                 mpd::State::Stop => {
-                    trace!("{:?} to {:?}", self, status.state);
+                    info!("{:?} to {:?}", self, status.state);
                     *self = ListenerState::Invalid;
                     Action::WhoCares
                 }
                 // it doesn't matter whether it is playing or Paused if the next song is in queue then it is skipped else sequence changed
                 mpd::State::Play | mpd::State::Pause => {
-                    trace!("{:?} to {:?}", self, status.state);
+                    info!("{:?} to {:?}", self, status.state);
                     *self = ListenerState::Playing {
                         curr: (
                             status
@@ -185,7 +186,7 @@ impl ListenerState {
             },
             // if last state is invalid then whatever happened doesn't matter just update the state and continue
             ListenerState::Invalid => {
-                trace!("{:?} to {:?}", self, status.state);
+                info!("{:?} to {:?}", self, status.state);
                 match status.state {
                     mpd::State::Play => {
                         *self = ListenerState::Playing {
@@ -248,11 +249,12 @@ impl ListenerState {
 }
 
 /// checks if any other instance of listener is running, if not then create flag file indicating that a listener is running
-fn check_instance() {
+fn init_listener() {
+    let lock_file = "/tmp/mp_rater.lck";
     if let Err(err) = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open("/tmp/mp_rater.lck")
+        .open(lock_file)
     {
         match err.kind() {
             std::io::ErrorKind::AlreadyExists => {
@@ -266,11 +268,21 @@ fn check_instance() {
         }
         exit(1);
     }
+    // initialize signal handler
+    let mut signals = Signals::new(TERM_SIGNALS).expect("Couldn't register signals");
+    std::thread::spawn(move ||{
+        for sig in signals.forever(){
+            info!("recieved a signal {:?}", sig);
+            std::fs::remove_file(lock_file).expect("lock File remove failed");
+            info!("Cleanup done");
+            exit(0);
+        }
+    });
 }
 /// listens to mpd events sets the statistics for the song
 /// use_tags: if its true then eyed3 tags will be used else mpd stickers are used to store stats
 pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_tags: bool) -> ! {
-    check_instance();
+    init_listener();
     let mut notif = Notification::new();
     notif
         .summary("mp_rater")
