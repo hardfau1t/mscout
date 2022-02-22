@@ -195,11 +195,11 @@ fn main() {
 
     // set the verbosity
     match arguments.occurrences_of("verbose") {
-        0 => builder.filter_level(log::LevelFilter::Error).init(),
-        1 => builder.filter_level(log::LevelFilter::Warn).init(),
-        2 => builder.filter_level(log::LevelFilter::Info).init(),
-        3 => builder.filter_level(log::LevelFilter::Debug).init(),
-        4 => builder.filter_level(log::LevelFilter::Trace).init(),
+        0 => builder.filter_module("mp_rater", log::LevelFilter::Error).init(),
+        1 => builder.filter_module("mp_rater", log::LevelFilter::Warn).init(),
+        2 => builder.filter_module("mp_rater", log::LevelFilter::Info).init(),
+        3 => builder.filter_module("mp_rater", log::LevelFilter::Debug).init(),
+        4 => builder.filter_module("mp_rater", log::LevelFilter::Trace).init(),
         _ => {
             builder.filter_level(log::LevelFilter::Trace).init();
             trace!("wait one of the rust expert is coming to debug");

@@ -86,15 +86,14 @@ impl ListenerState {
                     let mut ret = Action::WhoCares;
                     if let Some(s) = next {
                         // if single is set then it is possible that state to change from play to paused and song changed
-                        if s.0 == status.song.unwrap().id.0
-                            && status.single
-                            && st.elapsed().as_secs() + 1 > curr.1
-                        // +1 so to eliminate delay introduced by computation, etc
-                        {
-                            ret = Action::Played(curr.0);
-                        } else {
-                            error!("next song is played when the new state is pause");
-                            debug!("current state: {self:?}, new status: {status:?}");
+                        if s.0 == status.song.unwrap().id.0 {
+                            if status.single && st.elapsed().as_secs() + 1 > curr.1 {
+                                // +1 so to eliminate delay introduced by computation, etc
+                                ret = Action::Played(curr.0);
+                            } else {
+                                error!("next song is played when the new state is pause");
+                                debug!("current state: {self:?}, new status: {status:?}");
+                            }
                         }
                     }
                     if st.elapsed().as_secs() + 1 > curr.1 {
@@ -104,7 +103,7 @@ impl ListenerState {
                     }
                     *self = ListenerState::Paused {
                         curr: status.song.try_into().unwrap(),
-                        next: status.song.map(|s| s.into()),
+                        next: status.nextsong.map(|s| s.into()),
                     };
                     ret
                 }
@@ -114,24 +113,37 @@ impl ListenerState {
                     // if the current song is same as previous and repeat is enabled then it is possibl that song is played
                     if curr.0 == status.song.unwrap().into()
                         && status.repeat
-                        && st.elapsed().as_secs() + 1 >= curr.1         // +1 to cover some timing errors
+                        && st.elapsed().as_secs() + 1 >= curr.1
+                    // +1 to cover some timing errors
                     {
                         ret = Action::Played(curr.0);
-                    }else if let Some(n) = next{
+                    } else if let Some(n) = next {
                         // if the currently playing song is next of previous then either it is skipped or played.
-                        if n == status.song.unwrap().into(){
-                            if st.elapsed().as_secs() +1 >= curr.1 { // +1 so that it will cover if some errors
+                        if n == status.song.unwrap().into() {
+                            debug!(
+                                "next {:?}, curr.time:{}, instant : {:?}, and status {:?}",
+                                n, curr.1, st, status
+                            );
+                            if st.elapsed().as_secs() + 1 >= curr.1 {
+                                // +1 so that it will cover if some errors
                                 ret = Action::Played(curr.0);
-                            }else {
+                            } else {
                                 ret = Action::Skipped(curr.0);
                             }
                         }
                     }
                     *self = ListenerState::Playing {
-                        curr: (status.song.try_into().unwrap(), status.duration.unwrap().as_secs()),
-                        next: status.song.map(|s| s.into()),
-                        st: Instant::now() + status.elapsed.unwrap(),
+                        curr: (
+                            status.song.try_into().unwrap(),
+                            (status.duration.unwrap() - status.elapsed.unwrap()).as_secs(),
+                        ),
+                        next: status.nextsong.map(|s| s.into()),
+                        st: Instant::now(),
                     };
+                    debug!(
+                        "updating listener {:?}, with elapsed {:?}",
+                        self, status.elapsed
+                    );
                     ret
                 }
             },
@@ -151,14 +163,17 @@ impl ListenerState {
                                 .song
                                 .expect("report!!! This shouldn't be None")
                                 .into(),
-                            status
-                                .duration
-                                .expect("status doesn't contains time")
-                                .as_secs(),
+                            (status.duration.expect("status doesn't contains time")
+                                - status.elapsed.unwrap())
+                            .as_secs(),
                         ),
                         next: status.nextsong.map(|s| s.into()),
-                        st: Instant::now() + status.elapsed.unwrap(), // if it started from pause then add the elapsed time
+                        st: Instant::now(), // if it started from pause then add the elapsed time
                     };
+                    debug!(
+                        "updating listener {:?}, with elapsed {:?}",
+                        self, status.elapsed
+                    );
                     if let Some(s) = next {
                         if s.0 == status.song.expect("report!!! This should not be NULL").id.0 {
                             return Action::Skipped(curr);
@@ -178,11 +193,17 @@ impl ListenerState {
                                     .song
                                     .expect("report!!! This shouldn't be None")
                                     .into(),
-                                status.duration.expect("status time is None").as_secs(),
+                                (status.duration.expect("status time is None")
+                                    - status.elapsed.unwrap())
+                                .as_secs(),
                             ),
                             next: status.nextsong.map(|s| s.into()),
                             st: Instant::now(),
-                        }
+                        };
+                        debug!(
+                            "updating listener {:?}, with elapsed {:?}",
+                            self, status.elapsed
+                        );
                     }
                     mpd::State::Pause => {
                         warn!(
