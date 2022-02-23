@@ -249,7 +249,7 @@ impl ListenerState {
 }
 
 /// checks if any other instance of listener is running, if not then create flag file indicating that a listener is running
-fn init_listener() {
+fn init_listener(notif: &mut notify_rust::Notification) {
     let lock_file = "/tmp/mp_rater.lck";
     if let Err(err) = std::fs::OpenOptions::new()
         .write(true)
@@ -266,6 +266,7 @@ fn init_listener() {
             }
             _ => error!("failed to check for instance {:?}", err),
         }
+        notif.body("Failed to start mp_rater may be already started").show().ok();
         exit(1);
     }
     // initialize signal handler
@@ -290,7 +291,6 @@ fn init_listener() {
 /// listens to mpd events sets the statistics for the song
 /// use_tags: if its true then eyed3 tags will be used else mpd stickers are used to store stats
 pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_tags: bool) -> ! {
-    init_listener();
     let mut notif = Notification::new();
     notif
         .summary("mp_rater")
@@ -298,7 +298,8 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
         .urgency(Urgency::Low)
         .icon("/usr/share/icons/Adwaita/scalable/devices/media-optical-dvd-symbolic.svg");
     let mut state = ListenerState::with_status(client.status().unwrap());
-    notif.clone().body("Listener started").show().ok();
+    init_listener(&mut notif);
+    notif.body("Listener started").show().ok();
     loop {
         if let Ok(sub_systems) = client.wait(&[]) {
             // sub systems which caused the thread to wake up
@@ -317,7 +318,6 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                                         .file,
                                 );
                                 notif
-                                    .clone()
                                     .body(
                                         format!(
                                             "Played: {}",
@@ -356,7 +356,6 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                                         .file,
                                 );
                                 notif
-                                    .clone()
                                     .body(
                                         format!(
                                             "Skipped: {}",
