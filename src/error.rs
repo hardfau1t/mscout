@@ -10,6 +10,7 @@ pub enum Error {
     /// Connection with mpd failed
     ConnectionFailed,
     /// unknown Error
+    #[allow(dead_code)]         // for the future use
     Unknown,
 }
 

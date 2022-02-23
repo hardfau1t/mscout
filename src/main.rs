@@ -75,41 +75,37 @@ fn main() {
                 .help("use eyed3 tags to store ratings. If not specified by default mpd stickers are used. tags are persistante across file moves, where as incase of mpd sticker these will be erased if you move the files.")
                 )
         .arg(Arg::new("socket-path")
-             .short('p')
-             .long("socket-path")
-             .conflicts_with("socket-address")
-             .takes_value(true)
-             .required_unless_present("socket-address")
-             .validator(|pth|{
-                 if Path::new(&pth).exists(){
-                     Ok(())
-                 }else{
-                     Err(format!("could get the socket {}", pth))
-                 }
-             })
-             .help("path to mpd socket. If  this flag is set then music directory is automatically taken from mpd")
-             )
+         .short('p')
+            .long("socket-path")
+            .default_value(&format!("{}/.local/run/mpd/socket", std::env::var("HOME").unwrap_or_else(|_|".".to_string())))
+            .takes_value(true)
+            .help("path to mpd socket. \
+                By default it will check in ~/.local/run/mpd/socket.\
+                if both path and socket address are specified, then path has higher priority.
+                If  this flag is set then music directory is automatically taken from mpd")
+            )
         .arg(Arg::new("root-dir")
-             .short('r')
-             .long("root-dir")
-             .takes_value(true)
-             .validator(|pth|{
-                 if Path::new(&pth).is_dir(){
-                 Ok(())
-             }else{
-                 Err(format!("invalid root-dir {}", pth))
-             }
-             })
-             .help("root directory of mpd server.")
-             )
+            .short('r')
+            .long("root-dir")
+            .takes_value(true)
+            .validator(|pth|{
+                if Path::new(&pth).is_dir(){
+                Ok(())
+            }else{
+                Err(format!("invalid root-dir {}", pth))
+            }
+            })
+            .help("mpd music directory")
+            )
         .arg(Arg::new("socket-address")
-             .short('a')
-             .long("socket-address")
-             .required_unless_present("socket-path")
-             .conflicts_with("socket-path")
-             .takes_value(true)
-             .help("mpd socket address. <host>:<port> ex. -a 127.0.0.1:6600")
-             )
+            .short('a')
+            .long("socket-address")
+            .default_value("127.0.0.1:6600")
+            .takes_value(true)
+            .help("mpd socket address. <host>:<port> ex. -a 127.0.0.1:6600\
+                default value is 127.0.0.1:6600\
+                ")
+            )
         .subcommand(
             App::new("listen")
             .short_flag('L')
@@ -129,10 +125,10 @@ fn main() {
                 .help("prints stats of a current song")
                 )
             .arg(Arg::new("stats")
-                 .short('s')
-                 .long("stats")
-                 .help("prints the exact stats instead of a single rating number")
-                 )
+                .short('s')
+                .long("stats")
+                .help("prints the exact stats instead of a single rating number")
+                )
             .arg(
                 Arg::new("json")
                 .short('j')
@@ -195,11 +191,21 @@ fn main() {
 
     // set the verbosity
     match arguments.occurrences_of("verbose") {
-        0 => builder.filter_module("mp_rater", log::LevelFilter::Error).init(),
-        1 => builder.filter_module("mp_rater", log::LevelFilter::Warn).init(),
-        2 => builder.filter_module("mp_rater", log::LevelFilter::Info).init(),
-        3 => builder.filter_module("mp_rater", log::LevelFilter::Debug).init(),
-        4 => builder.filter_module("mp_rater", log::LevelFilter::Trace).init(),
+        0 => builder
+            .filter_module("mp_rater", log::LevelFilter::Error)
+            .init(),
+        1 => builder
+            .filter_module("mp_rater", log::LevelFilter::Warn)
+            .init(),
+        2 => builder
+            .filter_module("mp_rater", log::LevelFilter::Info)
+            .init(),
+        3 => builder
+            .filter_module("mp_rater", log::LevelFilter::Debug)
+            .init(),
+        4 => builder
+            .filter_module("mp_rater", log::LevelFilter::Trace)
+            .init(),
         _ => {
             builder.filter_level(log::LevelFilter::Trace).init();
             trace!("wait one of the rust expert is coming to debug");
@@ -207,16 +213,20 @@ fn main() {
     }
     debug!("log_level set to {:?}", log::max_level());
 
-    let con_t = if arguments.is_present("socket-path") {
-        let stream = arguments.value_of("socket-path").unwrap();
-        debug!("connecting to unix stream {}", stream);
-        ConnType::Stream(std::os::unix::net::UnixStream::connect(stream).unwrap())
-    } else if arguments.is_present("socket-address") {
+    let get_sock = || {
         let address = arguments.value_of("socket-address").unwrap();
         debug!("connecting to TcpStream {}", address);
         ConnType::Socket(std::net::TcpStream::connect(address).unwrap())
+    };
+
+    // if the socket address is manually given then use socket address only
+    let con_t = if arguments.occurrences_of("socket-address") == 0 {
+        let stream = arguments.value_of("socket-path").unwrap();
+        debug!("connecting to unix stream {}", stream);
+        std::os::unix::net::UnixStream::connect(stream)
+            .map_or_else(|_| get_sock(), ConnType::Stream)
     } else {
-        unreachable!()
+        get_sock()
     };
     let mut client = mpd::Client::new(con_t).unwrap();
     let use_tags = arguments.is_present("use-tags");

@@ -4,9 +4,9 @@ use crate::{stats, ConnType};
 // logging macros no need to warn if unused
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
-use signal_hook::{consts::TERM_SIGNALS, iterator::Signals};
 use mpd::{idle::Subsystem, Idle};
 use notify_rust::{Notification, Urgency};
+use signal_hook::{consts::TERM_SIGNALS, iterator::Signals};
 use std::path::PathBuf;
 use std::process::exit;
 use std::time::Instant;
@@ -270,8 +270,8 @@ fn init_listener() {
     }
     // initialize signal handler
     let mut signals = Signals::new(TERM_SIGNALS).expect("Couldn't register signals");
-    std::thread::spawn(move ||{
-        for sig in signals.forever(){
+    std::thread::spawn(move || {
+        for sig in signals.forever() {
             info!("recieved a signal {:?}", sig);
             std::fs::remove_file(lock_file).expect("lock File remove failed");
             info!("Cleanup done");
