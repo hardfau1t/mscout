@@ -272,6 +272,14 @@ fn init_listener() {
     let mut signals = Signals::new(TERM_SIGNALS).expect("Couldn't register signals");
     std::thread::spawn(move || {
         for sig in signals.forever() {
+            Notification::new()
+                .summary("mp_rater")
+                .timeout(10000)
+                .urgency(Urgency::Low)
+                .icon("/usr/share/icons/Adwaita/scalable/devices/media-optical-dvd-symbolic.svg")
+                .body("stopping listener")
+                .show()
+                .ok();
             info!("recieved a signal {:?}", sig);
             std::fs::remove_file(lock_file).expect("lock File remove failed");
             info!("Cleanup done");
@@ -290,6 +298,7 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
         .urgency(Urgency::Low)
         .icon("/usr/share/icons/Adwaita/scalable/devices/media-optical-dvd-symbolic.svg");
     let mut state = ListenerState::with_status(client.status().unwrap());
+    notif.clone().body("Listener started").show().ok();
     loop {
         if let Ok(sub_systems) = client.wait(&[]) {
             // sub systems which caused the thread to wake up
