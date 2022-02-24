@@ -317,6 +317,7 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                                         .expect("may be consume enabled?")
                                         .file,
                                 );
+                                info!("song Played {song_path:?}");
                                 notif
                                     .body(
                                         format!(
@@ -355,6 +356,7 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                                         .expect("check if consume is enabled")
                                         .file,
                                 );
+                                info!("song skipped {song_path:?}");
                                 notif
                                     .body(
                                         format!(

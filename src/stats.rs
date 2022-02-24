@@ -52,12 +52,16 @@ pub fn stats_from_sticker(
     client
         .sticker("song", spath.to_str().unwrap(), MP_DESC)
         .map_or_else(
-            |err| match err {
-                mpd::error::Error::Parse(_) => Ok(Statistics {
-                    play_cnt: 0,
-                    skip_cnt: 0,
-                }),
-                _ => Err(Error::ConnectionFailed),
+            |err| {
+                debug!("error {err} while getting stats");
+                match err {
+                    mpd::error::Error::Parse(_) => Ok(Statistics {
+                        play_cnt: 0,
+                        skip_cnt: 0,
+                    }),
+                    mpd::error::Error::Server(_) => Err(Error::FileNotExists),
+                    _ => Err(Error::ConnectionFailed),
+                }
             },
             |sticker| {
                 Ok(serde_json::from_str(&sticker).unwrap_or_else(|err| {
@@ -191,36 +195,57 @@ pub fn get_stats(client: &mut mpd::Client<ConnType>, args: &clap::ArgMatches, us
                 })
                 .file,
         ));
-    } else {
-        for user_path in args.values_of("path").unwrap() {
+    }
+    if let Some(playlists) = args.values_of("playlist") {
+        for playlist in playlists {
+            debug!("appending playlist {playlist} to songs list");
+            match client.playlist(playlist) {
+                Ok(pl_content) => {
+                    for s_pth in pl_content {
+                        debug!("appending song {} to songs", s_pth.file);
+                        songs.push(path::PathBuf::from(s_pth.file));
+                    }
+                }
+                Err(err) => error!("failed to add playlist due to {err}"),
+            }
+        }
+    }
+    if args.is_present("queue") {
+        if let Ok(q) = client.queue() {
+            for s_path in q {
+                debug!("appending path {} to songs list", s_path.file);
+                songs.push(path::PathBuf::from(s_path.file));
+            }
+        } else {
+            error!("failed to get current queue");
+        }
+    };
+    if let Some(s_paths) = args.values_of("path") {
+        for user_path in s_paths {
+            debug!("appending path {user_path} to songs list");
             songs.push(path::PathBuf::from(user_path));
         }
     };
     for song in songs {
-        let rates = if use_tags {
-            stats_from_tag(&song).unwrap_or_else(|err| {
-                if let Error::FileNotExists = err {
-                    error!("{:?} does'n exists", song);
-                }
-                exit(1);
-            })
+        if let Ok(rating) = if use_tags {
+            stats_from_tag(&song)
         } else {
-            stats_from_sticker(client, &song).unwrap_or_else(|err| {
-                error!("Couldn't get the sticker due to {:?}", err);
-                exit(1);
-            })
-        };
-        if args.is_present("stats") {
-            if args.is_present("json") {
-                println!("{}", serde_json::to_string(&rates).unwrap());
+            stats_from_sticker(client, &song)
+        } {
+            if args.is_present("stats") {
+                if args.is_present("json") {
+                    println!("{}", serde_json::to_string(&(&song, &rating)).unwrap());
+                } else {
+                    println!(
+                        "{:?} - play count: {}\tskip count: {}",
+                        song, rating.play_cnt, rating.skip_cnt
+                    );
+                }
             } else {
-                println!(
-                    "play count: {}\nskip count {}",
-                    rates.play_cnt, rates.skip_cnt
-                );
+                println!("{:?} - {}",song,  rating.get_ratings());
             }
         } else {
-            println!("ratings: {}", rates.get_ratings());
+            error!("Couldn't get the stats for {song:?}");
         }
     }
 }
