@@ -59,4 +59,12 @@ Or to get stats for any other song, give a path relative to mpd music directory
 
 `mp_rater -a 127.0.0.1:6600 -G <relative path to song>`
 
+To get stats from whole playlist.
+
+`mp_rater -G --playlist <playlist> ...`
+
+To get stats from currrent queue.
+
+`mp_rater -G -Q `
+
 use -s flags to get exact play and skip count
