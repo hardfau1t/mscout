@@ -266,7 +266,10 @@ fn init_listener(notif: &mut notify_rust::Notification) {
             }
             _ => error!("failed to check for instance {:?}", err),
         }
-        notif.body("Failed to start mp_rater may be already started").show().ok();
+        notif
+            .body("Failed to start mp_rater may be already started")
+            .show()
+            .ok();
         exit(1);
     }
     // initialize signal handler
@@ -349,42 +352,40 @@ pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_
                                 }
                             }
                             Action::Skipped(id) => {
-                                let song_path = PathBuf::from(
-                                    client
-                                        .playlistid(id.into())
-                                        .unwrap()
-                                        .expect("check if consume is enabled")
-                                        .file,
-                                );
-                                info!("song skipped {song_path:?}");
-                                notif
-                                    .body(
-                                        format!(
-                                            "Skipped: {}",
-                                            &song_path
-                                                .file_name()
-                                                .map_or(song_path.to_str(), |pth| pth.to_str())
-                                                .unwrap()
+                                if let Ok(Some(song_from_mpd)) = client.playlistid(id.into()) {
+                                    let song_path = PathBuf::from(song_from_mpd.file);
+                                    info!("song skipped {song_path:?}");
+                                    notif
+                                        .body(
+                                            format!(
+                                                "Skipped: {}",
+                                                &song_path
+                                                    .file_name()
+                                                    .map_or(song_path.to_str(), |pth| pth.to_str())
+                                                    .unwrap()
+                                            )
+                                            .as_ref(),
                                         )
-                                        .as_ref(),
-                                    )
-                                    .show()
-                                    .ok();
-                                // TODO: optimise this in better way
-                                let mut stats = if use_tags {
-                                    stats::stats_from_tag(&song_path)
+                                        .show()
+                                        .ok();
+                                    // TODO: optimise this in better way
+                                    let mut stats = if use_tags {
+                                        stats::stats_from_tag(&song_path)
+                                    } else {
+                                        stats::stats_from_sticker(client, &song_path)
+                                    }
+                                    .unwrap_or_default();
+                                    stats.skipped();
+                                    match if use_tags {
+                                        stats::stats_to_tag(&song_path, &stats)
+                                    } else {
+                                        stats::stats_to_sticker(client, &song_path, &stats)
+                                    } {
+                                        Ok(_) => (),
+                                        Err(_) => error!("skipped rating: Couldn't set the stats"),
+                                    }
                                 } else {
-                                    stats::stats_from_sticker(client, &song_path)
-                                }
-                                .unwrap_or_default();
-                                stats.skipped();
-                                match if use_tags {
-                                    stats::stats_to_tag(&song_path, &stats)
-                                } else {
-                                    stats::stats_to_sticker(client, &song_path, &stats)
-                                } {
-                                    Ok(_) => (),
-                                    Err(_) => error!("skipped rating: Couldn't set the stats"),
+                                    error!("check if consume is enabled")
                                 }
                             }
                         };
