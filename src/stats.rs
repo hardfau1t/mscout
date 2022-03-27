@@ -6,8 +6,7 @@ use crate::{
 use id3::{frame::Comment, Tag};
 use log::{debug, error, info, trace, warn};
 use serde::{Deserialize, Serialize};
-use std::path;
-use std::process::exit;
+use std::{path, process::exit};
 
 // #[derive(Debug)]
 // enum Operation {
@@ -38,6 +37,7 @@ impl Statistics {
     /// returns ratings which is a number between 0-10 if there are ratings else None
     pub fn get_ratings(&self) -> f32 {
         (self.play_cnt as f32 / (1 + self.skip_cnt) as f32) * (self.play_cnt + self.skip_cnt) as f32
+            - self.skip_cnt as f32
     }
 }
 
@@ -196,6 +196,54 @@ pub fn get_stats(client: &mut mpd::Client<ConnType>, args: &clap::ArgMatches, us
                 .file,
         ));
     }
+    let queue = client
+        .queue()
+        .try_unwrap("Couldn't get the queue information from mpd");
+    if args.is_present("previous") {
+        if let Some(cur) = client
+            .currentsong()
+            .try_unwrap("Failed to get current song")
+        {
+            let mut q_iter = queue.iter();
+            if let Some(mut prev) = q_iter.next() {
+                for s in q_iter {
+                    if s.place.unwrap().id == cur.place.unwrap().id {
+                        songs.push(path::PathBuf::from(&prev.file));
+                        break;
+                    }
+                    prev = s;
+                }
+            }
+        } else {
+            error!("Couldn't get the previous song");
+            dbg!("Current song is empty");
+        }
+    }
+    if args.is_present("next") {
+        if let Some(cur) = client
+            .currentsong()
+            .try_unwrap("Failed to get current song")
+        {
+            let mut q_iter = queue.iter();
+            for s in q_iter.by_ref() {
+                if s.place.unwrap().id == cur.place.unwrap().id {
+                    if let Some(next) = q_iter.next() {
+                        songs.push(path::PathBuf::from(&next.file));
+                    } else {
+                        if q_iter.count() == 0 {
+                            dbg!("Couldn't get the current song");
+                        }
+                        error!("Couldn't get the next song");
+                    }
+                    break;
+                }
+            }
+        } else {
+            error!("Couldn't get the previous song");
+            dbg!("Current song is empty");
+        }
+    }
+    // Collect sogngs
     if let Some(playlists) = args.values_of("playlist") {
         for playlist in playlists {
             debug!("appending playlist {playlist} to songs list");
@@ -226,26 +274,46 @@ pub fn get_stats(client: &mut mpd::Client<ConnType>, args: &clap::ArgMatches, us
             songs.push(path::PathBuf::from(user_path));
         }
     };
+    // Collect ratings
+    let mut with_ratings: Vec<(_, _)> = Vec::new();
     for song in songs {
         if let Ok(rating) = if use_tags {
             stats_from_tag(&song)
         } else {
             stats_from_sticker(client, &song)
         } {
-            if args.is_present("stats") {
-                if args.is_present("json") {
-                    println!("{}", serde_json::to_string(&(&song, &rating)).unwrap());
-                } else {
-                    println!(
-                        "{:?} - play count: {}\tskip count: {}",
-                        song, rating.play_cnt, rating.skip_cnt
-                    );
-                }
-            } else {
-                println!("{:?} - {}",song,  rating.get_ratings());
-            }
+            with_ratings.push((
+                song.to_str()
+                    .expect("Failed to get the song name into string")
+                    .to_owned(),
+                rating,
+            ));
         } else {
             error!("Couldn't get the stats for {song:?}");
+        }
+    }
+
+    // Sort the songs by ratings
+    with_ratings.sort_by(|s1, s2| {
+        if args.is_present("reverse") {
+            s2.1.get_ratings().partial_cmp(&s1.1.get_ratings()).unwrap()
+        } else {
+            s1.1.get_ratings().partial_cmp(&s2.1.get_ratings()).unwrap()
+        }
+    });
+    // -------------- print all teh stats----------------------------
+    for (song, rating) in with_ratings {
+        if args.is_present("stats") {
+            if args.is_present("json") {
+                println!("{}", serde_json::to_string(&(&song, &rating)).unwrap());
+            } else {
+                println!(
+                    "play count: {}\tskip count: {} - {}",
+                    rating.play_cnt, rating.skip_cnt, song
+                );
+            }
+        } else {
+            println!("{} - {}", rating.get_ratings(), song);
         }
     }
 }
