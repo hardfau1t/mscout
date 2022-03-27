@@ -3,7 +3,6 @@ edition = "2021"
 name = "mp_rater"
 version = "0.2.0"
 [dependencies]
-clap = "3.0.7"
 env_logger = "0.9"
 id3 = "0.6"
 once_cell = "*"
@@ -17,3 +16,7 @@ signal-hook = "*"
 [dependencies.serde]
 features = ["derive"]
 version = "1.0"
+
+[dependencies.clap]
+version = "3.1.6"
+features = ["env"]

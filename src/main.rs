@@ -6,7 +6,7 @@
 mod error;
 mod listener;
 mod stats;
-use clap::{App, Arg};
+use clap::{Command, Arg};
 use log::{debug, error, trace};
 use once_cell::sync::OnceCell;
 use std::io::{Read, Write};
@@ -56,7 +56,7 @@ static ROOT_DIR: OnceCell<String> = OnceCell::new();
 
 fn main() {
     let mut builder = env_logger::builder();
-    let arguments = App::new("mp rater")
+    let arguments = Command::new("mp rater")
         .version("0.1.0")
         .author("hardfau18 <the.qu1rky.b1t@gmail.com>")
         .about("rates song with skip/rate count for mpd")
@@ -72,7 +72,8 @@ fn main() {
                 Arg::new("use-tags")
                 .short('t')
                 .long("use-tags")
-                .help("use eyed3 tags to store ratings. If not specified by default mpd stickers are used. tags are persistante across file moves, where as incase of mpd sticker these will be erased if you move the files.")
+                .env("MP_RATER_USE_TAGS")
+                .help("use eyed3 tags to store ratings. If not specified by default mpd stickers are used. tags are persistante across file moves, where as incase of mpd sticker these will be erased if you move the files. Else you can set MP_RATER_USE_TAGS=1 in environment variable")
                 )
         .arg(Arg::new("socket-path")
          .short('p')
@@ -107,13 +108,13 @@ fn main() {
                 ")
             )
         .subcommand(
-            App::new("listen")
+            Command::new("listen")
             .short_flag('L')
             .long_flag("listen")
             .about("listens for mpd events")
         )
         .subcommand(
-            App::new("get-stats")
+            Command::new("get-stats")
             .short_flag('G')
             .long_flag("get-stats")
             .about("get the stats of a specific song")
@@ -158,7 +159,7 @@ fn main() {
                 )
             )
         .subcommand(
-            App::new("set-stats")
+            Command::new("set-stats")
             .short_flag('S')
             .long_flag("set-stats")
             .about("manually set stats for a perticular song, it should be in json")
