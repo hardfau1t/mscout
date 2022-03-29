@@ -102,13 +102,14 @@ pub fn stats_to_sticker(
 
 /// extracts the statistics from eyed3 tags(from comments).
 pub fn stats_from_tag(rel_path: &std::path::Path) -> Result<Statistics, Error> {
+    let song_pbuff = if rel_path.is_file() {
+        path::PathBuf::from(rel_path)
+    } else {
+        path::PathBuf::from(ROOT_DIR.get().expect("statistics to tag requires full path, try to use --socket-file or set root-dir manually")).join(rel_path)
+    };
     let mut cmt = None;
-    let mut spath = path::PathBuf::from(ROOT_DIR.get().expect(
-        "statistics to tag requires full path, try to use --socket-file or set root-dir manually",
-    ));
-    spath.push(rel_path);
-    debug!("songs full path is {:#?}", spath);
-    let tag = Tag::read_from_path(&spath).or_else(|err: id3::Error| match err.kind {
+    debug!("songs full path is {:#?}", song_pbuff);
+    let tag = Tag::read_from_path(&song_pbuff).or_else(|err: id3::Error| match err.kind {
         id3::ErrorKind::NoTag => {
             warn!("no tag found creating a new id3 tag");
             Ok(Tag::new())
@@ -154,12 +155,13 @@ pub fn stats_from_tag(rel_path: &std::path::Path) -> Result<Statistics, Error> {
 /// set the statistics to the eyed3 tags(from comments).
 /// spath : absolute path to the song.
 pub fn stats_to_tag(spath: &std::path::Path, stats: &Statistics) -> Result<(), Error> {
-    let mut root = path::PathBuf::from(ROOT_DIR.get().expect(
-        "statistics to tag requires full path, try to use --socket-file or set root-dir manually",
-    ));
-    root.push(spath);
-    debug!("setting tag to {:#?}", root);
-    let mut tag = Tag::read_from_path(&root).or_else(|err: id3::Error| match err.kind {
+    let song_pbuff = if spath.is_file() {
+        path::PathBuf::from(spath)
+    } else {
+        path::PathBuf::from(ROOT_DIR.get().expect("statistics to tag requires full path, try to use --socket-file or set root-dir manually")).join(spath)
+    };
+    debug!("setting tag to {:#?}", song_pbuff);
+    let mut tag = Tag::read_from_path(&song_pbuff).or_else(|err: id3::Error| match err.kind {
         id3::ErrorKind::NoTag => {
             warn!("no tag found creating a new id3 tag");
             Ok(Tag::new())
@@ -176,7 +178,7 @@ pub fn stats_to_tag(spath: &std::path::Path, stats: &Statistics) -> Result<(), E
     };
     info!("attaching tag comment {:?}", comment);
     tag.add_comment(comment);
-    tag.write_to_path(&root, id3::Version::Id3v24)
+    tag.write_to_path(&song_pbuff, id3::Version::Id3v24)
         .unwrap_or_else(|err| warn!("failed to write tag {}", err));
     Ok(())
 }
@@ -334,8 +336,9 @@ pub fn set_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, us
                 .file,
         )
     } else {
-        path::PathBuf::from(subc.value_of("path").unwrap()) // path is required variable
+        path::PathBuf::from(subc.value_of("path").unwrap()) // path is required variable so it can be unwrapped
     };
+    // if json stats are given then get the stats from json. if not then pick the stats from file and update with given ones
     let stat = if subc.is_present("stats") {
         serde_json::from_str::<Statistics>(
             subc.value_of("stats")
