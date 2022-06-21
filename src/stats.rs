@@ -385,3 +385,17 @@ pub fn set_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, us
         Err(_) => error!("Failed to set stats"),
     }
 }
+
+/// imports stats from a given file
+pub fn import_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, use_tags: bool) {
+}
+
+/// exports all stats to a file
+pub fn export_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, use_tags: bool) {
+    if subc.is_present("hash"){
+        todo!()
+    }
+}
+/// clears stats of all files
+pub fn clear_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, use_tags: bool) {
+}

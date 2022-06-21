@@ -103,7 +103,7 @@ fn main() {
             .long("socket-address")
             .default_value("127.0.0.1:6600")
             .takes_value(true)
-            .help("mpd socket address. <host>:<port> ex. -a 127.0.0.1:6600\
+            .help("mpd socket address. <host>:<port> ex. -a 127.0.0.1:6600 \
                 default value is 127.0.0.1:6600\
                 ")
             )
@@ -223,6 +223,59 @@ fn main() {
                 .help("stats in json format. example: {\"play_cnt\":11,\"skip_cnt\":0}")
                 )
             )
+        .subcommand(
+            Command::new("export")
+            .short_flag('E')
+            .long_flag("export")
+            .about("export stats to a file")
+            .arg(
+                Arg::new("out-file")
+                .required(false)
+                .short('o')
+                .long("out-file")
+                .default_value("mp_rater-stats.json")
+                .help("output file")
+                )
+            .arg(
+                Arg::new("hash")
+                .short('h')
+                .long("hash")
+                .takes_value(false)
+                .requires("use-tags")
+                .help("exports with songs hash. this way songs name is not required to be matching")
+                )
+            )
+        .subcommand(
+            Command::new("import")
+            .short_flag('I')
+            .long_flag("import")
+            .about("import stats from a file")
+            .arg(
+                Arg::new("hash")
+                .short('h')
+                .long("hash")
+                .takes_value(false)
+                .requires("use-tags")
+                .help("imports hashes as input, songs need to have the same name as exported ones. but it supports only for tags not for stickers")
+                )
+            .arg(
+                Arg::new("input-file")
+                .required(true)
+                .help("file containing stats")
+                )
+            )
+        .subcommand(
+            Command::new("clear")
+            .long_flag("clear-stats")
+            .about("resets all stats to 0")
+            .arg(
+                Arg::new("confirm")
+                .short('y')
+                .takes_value(false)
+                .long("yes")
+                .help("yes to confirm. dont ask for prompt")
+                )
+            )
         .get_matches();
 
     // set the verbosity
@@ -256,7 +309,7 @@ fn main() {
     };
 
     // if the socket address is manually given then use socket address only
-    let con_t = if arguments.occurrences_of("socket-address") == 0 {
+    let con_t = if arguments.occurrences_of("socket-address") == 1 {
         let stream = arguments.value_of("socket-path").unwrap();
         debug!("connecting to unix stream {}", stream);
         std::os::unix::net::UnixStream::connect(stream)
@@ -282,6 +335,9 @@ fn main() {
         Some(("listen", subm)) => listener::listen(&mut client, subm, use_tags),
         Some(("get-stats", subm)) => stats::get_stats(&mut client, subm, use_tags),
         Some(("set-stats", subm)) => stats::set_stats(&mut client, subm, use_tags),
+        Some(("import", subm)) => stats::import_stats(&mut client, subm, use_tags),
+        Some(("export", subm)) => stats::export_stats(&mut client, subm, use_tags),
+        Some(("clear", subm)) => stats::clear_stats(&mut client, subm, use_tags),
         _ => {}
     }
 }
