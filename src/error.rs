@@ -10,8 +10,10 @@ pub enum Error {
     /// Connection with mpd failed
     ConnectionFailed,
     /// unknown Error
-    #[allow(dead_code)]         // for the future use
+    #[allow(dead_code)] // for the future use
     Unknown,
+    /// if reading Tag fails from id3
+    Id3ReadTag,
 }
 
 /// Custom trait to implement standard expect method but does some logging and exits.

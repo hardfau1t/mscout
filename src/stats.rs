@@ -109,17 +109,24 @@ pub fn stats_from_tag(rel_path: &std::path::Path) -> Result<Statistics, Error> {
     };
     let mut cmt = None;
     debug!("songs full path is {:#?}", song_pbuff);
-    let tag = Tag::read_from_path(&song_pbuff).or_else(|err: id3::Error| match err.kind {
+    let mut tag = Tag::read_from_path(&song_pbuff).or_else(|err: id3::Error| match err.kind {
         id3::ErrorKind::NoTag => {
             warn!("no tag found creating a new id3 tag");
             Ok(Tag::new())
         }
+        id3::ErrorKind::StringDecoding(..) => {
+            error!(
+                "invalid input error while reading tag {:?} for song {:?}",
+                err.description, rel_path,
+            );
+            Err(Error::Id3ReadTag)
+        }
         _ => {
             error!(
-                " error while opening tag {:?} for song {:?}",
-                err.description, rel_path
+                "unknown error while reading tag {:?} for song {:?}",
+                err.description, rel_path,
             );
-            Err(Error::FileNotExists)
+            Err(Error::Unknown)
         }
     })?;
     // return Err(Error::FileNotExists);
@@ -131,11 +138,22 @@ pub fn stats_from_tag(rel_path: &std::path::Path) -> Result<Statistics, Error> {
         }
     }
     // if the file has ratings comment then modify it, else create fresh one with 0 0
-    cmt.map_or(
-        Ok(Statistics {
-            play_cnt: 0,
-            skip_cnt: 0,
-        }),
+    cmt.map_or_else(
+        || {
+            let stats = Statistics {
+                play_cnt: 0,
+                skip_cnt: 0,
+            };
+            let comment = Comment {
+                lang: "eng".to_string(),
+                description: MP_DESC.to_string(),
+                text: serde_json::to_string(&stats).expect("couldn't convert ratings  to json"),
+            };
+            tag.add_comment(comment);
+            tag.write_to_path(song_pbuff, id3::Version::Id3v24)
+                .unwrap_or_else(|err| warn!("Failed to write tag : {}", err.description));
+            Ok(stats)
+        },
         |comment| {
             let rating: Statistics = serde_json::from_str(&comment.text).unwrap_or_else(|err| {
                 warn!(
@@ -386,16 +404,66 @@ pub fn set_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, us
     }
 }
 
+/// struct used to export or import statistics of a song
+#[derive(Debug, Serialize, Deserialize)]
+struct SavedStats {
+    /// path from mpd's root directory,
+    path: String,
+    /// optional hash of the song, if path doesn't matches then if hash matches, hash is used
+    hash: Option<String>,
+    /// statistics of the song
+    stats: Statistics,
+}
+
 /// imports stats from a given file
-pub fn import_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, use_tags: bool) {
+pub fn import_stats(
+    _client: &mut mpd::Client<ConnType>,
+    _subc: &clap::ArgMatches,
+    _use_tags: bool,
+) {
 }
 
 /// exports all stats to a file
 pub fn export_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, use_tags: bool) {
-    if subc.is_present("hash"){
-        todo!()
+    let mut json_stats = Vec::new();
+    client.listall().unwrap().iter().filter_map(|song| {
+        if use_tags{
+            let mut pth = path::PathBuf::from(ROOT_DIR.get().expect("statistics to tag requires full path, try to use --socket-file or set root-dir manually"));
+            pth.push(&song.file);
+            match stats_from_tag(&pth){
+                Ok(stats) => {
+                    info!("exporting {:?}: {:?}", pth, stats);
+                    Some((song, stats))
+
+                },
+                Err(Error::Id3ReadTag) => {
+                    warn!("skipping {:?}", &pth);
+                    None
+                },
+                Err(_)=> panic!("Failed to get stats for {:?}", &pth),
+            }
+        }else{
+            stats_from_sticker(client, &path::PathBuf::from(&song.file)).ok().map(|stats| (song, stats))
+        }
+    }).for_each(|(song, stats)|{
+        json_stats.push(SavedStats{
+            path: song.file.clone(),
+            hash: None,
+            stats,
+        })
+    });
+    info!("Found {} stats", json_stats.len());
+    if let Some(output_file) = subc.get_one::<String>("out-file") {
+        info!("Writing stats to file {}", output_file);
+        let f = std::fs::File::create(output_file).unwrap();
+        serde_json::to_writer(f, &json_stats).unwrap();
+    } else {
+        serde_json::to_writer(std::io::stdout(), &json_stats).unwrap();
     }
 }
 /// clears stats of all files
-pub fn clear_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, use_tags: bool) {
+pub fn clear_stats(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, _use_tags: bool) {
+    for s in client.listall().unwrap() {
+        println!("{:?}", s);
+    }
 }

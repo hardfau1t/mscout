@@ -6,7 +6,7 @@
 mod error;
 mod listener;
 mod stats;
-use clap::{Command, Arg};
+use clap::{Arg, Command};
 use log::{debug, error, trace};
 use once_cell::sync::OnceCell;
 use std::io::{Read, Write};
@@ -66,7 +66,7 @@ fn main() {
                 .global(true)
                 .multiple_occurrences(true)
                 .long("verbose")
-                .help("sets the verbose level, use multiple times for more verbosity")
+                .help("sets the verbose level, use multiple times for more verbosity. By default all the logs are written to stderr")
         )
             .arg(
                 Arg::new("use-tags")
@@ -233,15 +233,15 @@ fn main() {
                 .required(false)
                 .short('o')
                 .long("out-file")
-                .default_value("mp_rater-stats.json")
-                .help("output file")
+                .takes_value(true)
+                .value_parser(clap::value_parser!(String))
+                .help("output file[default it write to stdout]")
                 )
             .arg(
                 Arg::new("hash")
-                .short('h')
+                .short('H')
                 .long("hash")
                 .takes_value(false)
-                .requires("use-tags")
                 .help("exports with songs hash. this way songs name is not required to be matching")
                 )
             )
@@ -252,15 +252,18 @@ fn main() {
             .about("import stats from a file")
             .arg(
                 Arg::new("hash")
-                .short('h')
+                .short('H')
                 .long("hash")
                 .takes_value(false)
-                .requires("use-tags")
                 .help("imports hashes as input, songs need to have the same name as exported ones. but it supports only for tags not for stickers")
                 )
             .arg(
                 Arg::new("input-file")
-                .required(true)
+                .short('i')
+                .long("input-file")
+                .required(false)
+                .takes_value(true)
+                .value_parser(clap::value_parser!(String))
                 .help("file containing stats")
                 )
             )
@@ -309,10 +312,9 @@ fn main() {
     };
 
     // if the socket address is manually given then use socket address only
-    let con_t = if arguments.occurrences_of("socket-address") == 1 {
-        let stream = arguments.value_of("socket-path").unwrap();
-        debug!("connecting to unix stream {}", stream);
-        std::os::unix::net::UnixStream::connect(stream)
+    let con_t = if let Some(stream_path) = arguments.value_of("socket-path") {
+        debug!("connecting to unix stream {}", stream_path);
+        std::os::unix::net::UnixStream::connect(stream_path)
             .map_or_else(|_| get_sock(), ConnType::Stream)
     } else {
         get_sock()
