@@ -41,6 +41,24 @@ impl Statistics {
     }
 }
 
+impl std::ops::Add for Statistics {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            skip_cnt: self.skip_cnt + rhs.skip_cnt,
+            play_cnt: self.play_cnt + rhs.play_cnt,
+        }
+    }
+}
+
+impl std::ops::AddAssign for Statistics{
+    fn add_assign(&mut self, rhs: Self) {
+        self.play_cnt+= rhs.play_cnt;
+        self.skip_cnt+= rhs.skip_cnt;
+    }
+}
+
 /// gets the stats from mpd sticker database.
 /// where spath is the path to the song relative to mpd's directory
 pub fn stats_from_sticker(
@@ -415,6 +433,7 @@ struct SavedStats {
     stats: Statistics,
 }
 
+
 /// imports stats from a given file
 pub fn import_stats(
     client: &mut mpd::Client<ConnType>,
@@ -422,7 +441,7 @@ pub fn import_stats(
     use_tags: bool,
     mut confirm_all: bool,
 ) {
-    let reader: Vec<SavedStats> =
+    let mut reader: Vec<SavedStats> =
         if let Some(input_file_path) = subc.get_one::<String>("input-file") {
             debug!("reading from file {}", input_file_path);
             let f = std::fs::File::open(input_file_path).unwrap();
@@ -432,13 +451,19 @@ pub fn import_stats(
             serde_json::from_reader(std::io::stdin()).unwrap()
         };
     info!("found {} elements", reader.len());
-    reader.iter().for_each(|saved_stats|{
+    let merge = subc.contains_id("merge");
+    reader.iter_mut().for_each(|saved_stats|{
         info!("importing stats to {}", saved_stats.path);
         if use_tags{
             let mut full_path = path::PathBuf::from(ROOT_DIR.get().expect("statistics to tag requires full path, try to use --socket-file or set root-dir manually"));
             full_path.push(&saved_stats.path);
             debug!("Full path {:?}", full_path);
             if full_path.is_file(){
+                if merge{
+                    if let Ok(old_stats) = stats_from_tag(&full_path){
+                        saved_stats.stats+= old_stats;
+                    };
+                }
                 if!confirm_all{
                     print!("import {full_path:?} - {:?}, Confirm: Y(all)/y(this)/[n](no)", saved_stats.stats);
                     if !confirm_user(&mut confirm_all){
@@ -450,6 +475,11 @@ pub fn import_stats(
                 warn!("skipping {}: No such file or directory", saved_stats.path);
             }
         }else{
+            if merge{
+                if let Ok(old_stats) = stats_from_sticker(client, &path::PathBuf::from(&saved_stats.path)){
+                    saved_stats.stats+=old_stats;
+                };
+            }
             if!confirm_all{
                 print!("import {} - {:?}, Confirm Y(all)/y(this)/[n](no):", saved_stats.path, saved_stats.stats);
                 if !confirm_user(&mut confirm_all){

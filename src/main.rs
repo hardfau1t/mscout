@@ -264,6 +264,13 @@ fn main() {
                 .help("imports hashes as input, songs need to have the same name as exported ones. but it supports only for tags not for stickers")
                 )
             .arg(
+                Arg::new("merge")
+                .short('m')
+                .long("merge")
+                .takes_value(false)
+                .help("import stats and if there is already stats available then add both")
+                )
+            .arg(
                 Arg::new("input-file")
                 .short('i')
                 .long("input-file")
