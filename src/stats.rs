@@ -417,10 +417,34 @@ struct SavedStats {
 
 /// imports stats from a given file
 pub fn import_stats(
-    _client: &mut mpd::Client<ConnType>,
-    _subc: &clap::ArgMatches,
-    _use_tags: bool,
+    client: &mut mpd::Client<ConnType>,
+    subc: &clap::ArgMatches,
+    use_tags: bool,
 ) {
+    let reader:Vec<SavedStats> = if let Some(input_file_path) = subc.get_one::<String>("input-file"){
+        debug!("reading from file {}", input_file_path);
+        let f = std::fs::File::open(input_file_path).unwrap();
+        serde_json::from_reader(f).unwrap()
+    }else{
+        debug!("reading from stdin");
+        serde_json::from_reader(std::io::stdin()).unwrap()
+    };
+    info!("found {} elements", reader.len());
+    reader.iter().for_each(|saved_stats|{
+        info!("importing stats to {}", saved_stats.path);
+        if use_tags{
+            let mut full_path = path::PathBuf::from(ROOT_DIR.get().expect("statistics to tag requires full path, try to use --socket-file or set root-dir manually"));
+            full_path.push(&saved_stats.path);
+            debug!("Full path {:?}", full_path);
+            if full_path.is_file(){
+                stats_to_tag(&full_path, &saved_stats.stats).unwrap_or_else(|err| warn!("failed to write stats to {:?}, due to : {:?}", full_path, err));
+            }else{
+                warn!("skipping {}: No such file or directory", saved_stats.path);
+            }
+        }else{
+            stats_to_sticker(client, &path::PathBuf::from(&saved_stats.path), &saved_stats.stats).unwrap_or_else(|err| warn!("failed update sticker with stats to {:?}, due to : {:?}", saved_stats.path, err));
+        }
+    });
 }
 
 /// exports all stats to a file
