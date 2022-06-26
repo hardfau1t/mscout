@@ -416,19 +416,16 @@ struct SavedStats {
 }
 
 /// imports stats from a given file
-pub fn import_stats(
-    client: &mut mpd::Client<ConnType>,
-    subc: &clap::ArgMatches,
-    use_tags: bool,
-) {
-    let reader:Vec<SavedStats> = if let Some(input_file_path) = subc.get_one::<String>("input-file"){
-        debug!("reading from file {}", input_file_path);
-        let f = std::fs::File::open(input_file_path).unwrap();
-        serde_json::from_reader(f).unwrap()
-    }else{
-        debug!("reading from stdin");
-        serde_json::from_reader(std::io::stdin()).unwrap()
-    };
+pub fn import_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, use_tags: bool) {
+    let reader: Vec<SavedStats> =
+        if let Some(input_file_path) = subc.get_one::<String>("input-file") {
+            debug!("reading from file {}", input_file_path);
+            let f = std::fs::File::open(input_file_path).unwrap();
+            serde_json::from_reader(f).unwrap()
+        } else {
+            debug!("reading from stdin");
+            serde_json::from_reader(std::io::stdin()).unwrap()
+        };
     info!("found {} elements", reader.len());
     reader.iter().for_each(|saved_stats|{
         info!("importing stats to {}", saved_stats.path);
@@ -486,8 +483,17 @@ pub fn export_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches,
     }
 }
 /// clears stats of all files
-pub fn clear_stats(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, _use_tags: bool) {
-    for s in client.listall().unwrap() {
-        println!("{:?}", s);
-    }
+pub fn clear_stats(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_tags: bool) {
+    let stat = Statistics::default();
+    client.listall().unwrap().iter().for_each(|song| {
+        if use_tags{
+            let mut pth = path::PathBuf::from(ROOT_DIR.get().expect("statistics to tag requires full path, try to use --socket-file or set root-dir manually"));
+            pth.push(&song.file);
+            debug!("resetting tagged stats for {:?}", pth);
+            stats_to_tag(&pth,&stat).unwrap_or_else(|err| warn!("failed to reset stats of {}, due to {:?}", song.file, err));
+        }else{
+            debug!("resetting sticker stats for {}", song.file);
+            stats_to_sticker(client,&path::PathBuf::from(&song.file),&stat).unwrap_or_else(|err| warn!("failed to reset stats of {}, due to {:?}", song.file, err));
+        }
+    });
 }
