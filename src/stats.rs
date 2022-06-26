@@ -6,7 +6,7 @@ use crate::{
 use id3::{frame::Comment, Tag};
 use log::{debug, error, info, trace, warn};
 use serde::{Deserialize, Serialize};
-use std::{path, process::exit};
+use std::{io::prelude::*, path, process::exit};
 
 // #[derive(Debug)]
 // enum Operation {
@@ -416,7 +416,12 @@ struct SavedStats {
 }
 
 /// imports stats from a given file
-pub fn import_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, use_tags: bool) {
+pub fn import_stats(
+    client: &mut mpd::Client<ConnType>,
+    subc: &clap::ArgMatches,
+    use_tags: bool,
+    mut confirm_all: bool,
+) {
     let reader: Vec<SavedStats> =
         if let Some(input_file_path) = subc.get_one::<String>("input-file") {
             debug!("reading from file {}", input_file_path);
@@ -434,11 +439,23 @@ pub fn import_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches,
             full_path.push(&saved_stats.path);
             debug!("Full path {:?}", full_path);
             if full_path.is_file(){
+                if!confirm_all{
+                    print!("import {full_path:?} - {:?}, Confirm: Y(all)/y(this)/[n](no)", saved_stats.stats);
+                    if !confirm_user(&mut confirm_all){
+                        return
+                    }
+                }
                 stats_to_tag(&full_path, &saved_stats.stats).unwrap_or_else(|err| warn!("failed to write stats to {:?}, due to : {:?}", full_path, err));
             }else{
                 warn!("skipping {}: No such file or directory", saved_stats.path);
             }
         }else{
+            if!confirm_all{
+                print!("import {} - {:?}, Confirm Y(all)/y(this)/[n](no):", saved_stats.path, saved_stats.stats);
+                if !confirm_user(&mut confirm_all){
+                    return
+                }
+            }
             stats_to_sticker(client, &path::PathBuf::from(&saved_stats.path), &saved_stats.stats).unwrap_or_else(|err| warn!("failed update sticker with stats to {:?}, due to : {:?}", saved_stats.path, err));
         }
     });
@@ -482,17 +499,52 @@ pub fn export_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches,
         serde_json::to_writer(std::io::stdout(), &json_stats).unwrap();
     }
 }
+
+/// returns true if user confirms else false if cancel is requested
+/// if user requests Y(confirm all) then confirm_all will be set to true
+fn confirm_user(confirm_all: &mut bool) -> bool {
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    let mut user_inp = String::with_capacity(10);
+    stdout.flush().unwrap();
+    stdin.read_line(&mut user_inp).unwrap();
+    user_inp.pop();
+    if user_inp == "Y" {
+        *confirm_all = true;
+    } else if user_inp != "y" {
+        return false;
+    }
+    true
+}
+
 /// clears stats of all files
-pub fn clear_stats(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_tags: bool) {
+pub fn clear_stats(
+    client: &mut mpd::Client<ConnType>,
+    _subc: &clap::ArgMatches,
+    use_tags: bool,
+    mut confirm_all: bool,
+) {
     let stat = Statistics::default();
     client.listall().unwrap().iter().for_each(|song| {
         if use_tags{
             let mut pth = path::PathBuf::from(ROOT_DIR.get().expect("statistics to tag requires full path, try to use --socket-file or set root-dir manually"));
             pth.push(&song.file);
             debug!("resetting tagged stats for {:?}", pth);
+            if!confirm_all{
+                print!("Stats of {pth:?} will be reset to 0, Confirm: Y(all)/y(this)/[n](no)");
+                if !confirm_user(&mut confirm_all){
+                    return
+                }
+            }
             stats_to_tag(&pth,&stat).unwrap_or_else(|err| warn!("failed to reset stats of {}, due to {:?}", song.file, err));
         }else{
             debug!("resetting sticker stats for {}", song.file);
+            if!confirm_all{
+                print!("Stats of {} will be reset to 0, Confirm Y(all)/y(this)/[n](no):", song.file);
+                if !confirm_user(&mut confirm_all){
+                    return
+                }
+            }
             stats_to_sticker(client,&path::PathBuf::from(&song.file),&stat).unwrap_or_else(|err| warn!("failed to reset stats of {}, due to {:?}", song.file, err));
         }
     });

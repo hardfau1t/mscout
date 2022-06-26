@@ -61,6 +61,12 @@ fn main() {
         .author("hardfau18 <the.qu1rky.b1t@gmail.com>")
         .about("rates song with skip/rate count for mpd")
         .arg(
+            Arg::new("confirm")
+            .short('y')
+            .long("yes")
+            .help("Confirm to all prompts")
+            )
+        .arg(
             Arg::new("verbose")
                 .short('v')
                 .global(true)
@@ -337,9 +343,9 @@ fn main() {
         Some(("listen", subm)) => listener::listen(&mut client, subm, use_tags),
         Some(("get-stats", subm)) => stats::get_stats(&mut client, subm, use_tags),
         Some(("set-stats", subm)) => stats::set_stats(&mut client, subm, use_tags),
-        Some(("import", subm)) => stats::import_stats(&mut client, subm, use_tags),
+        Some(("import", subm)) => stats::import_stats(&mut client, subm, use_tags, arguments.contains_id("confirm")),
         Some(("export", subm)) => stats::export_stats(&mut client, subm, use_tags),
-        Some(("clear", subm)) => stats::clear_stats(&mut client, subm, use_tags),
+        Some(("clear", subm)) => stats::clear_stats(&mut client, subm, use_tags, arguments.contains_id("confirm")),
         _ => {}
     }
 }
