@@ -6,7 +6,7 @@
 mod error;
 mod listener;
 mod stats;
-use clap::{Arg, Command};
+use clap::{Arg, ArgGroup, Command};
 use log::{debug, error, trace};
 use once_cell::sync::OnceCell;
 use std::io::{Read, Write};
@@ -60,6 +60,8 @@ fn main() {
         .version("0.1.0")
         .author("hardfau18 <the.qu1rky.b1t@gmail.com>")
         .about("rates song with skip/rate count for mpd")
+        .subcommand_required(true)
+        .arg_required_else_help(true)
         .arg(
             Arg::new("confirm")
             .short('y')
@@ -261,7 +263,35 @@ fn main() {
                 .short('H')
                 .long("hash")
                 .takes_value(false)
-                .help("imports hashes as input, songs need to have the same name as exported ones. but it supports only for tags not for stickers")
+                .help("imports using hashes as key, songs need to have the same name as exported ones. but it supports only for tags not for stickers")
+                )
+            .arg(
+                Arg::new("file")
+                .short('f')
+                .long("file")
+                .takes_value(false)
+                .help("imports stats using base filename as key")
+                )
+            .arg(
+                Arg::new("trackid")
+                .short('i')
+                .long("track-id")
+                .takes_value(false)
+                .help("imports stats by taking trackid as key")
+                )
+            .arg(
+                Arg::new("title")
+                .short('t')
+                .long("title")
+                .takes_value(false)
+                .help("imports by taking title as key")
+                )
+            .arg(
+                Arg::new("path")
+                .short('p')
+                .long("path")
+                .takes_value(false)
+                .help("[default] imports by taking path from mpd_root directory as key")
                 )
             .arg(
                 Arg::new("merge")
@@ -272,12 +302,13 @@ fn main() {
                 )
             .arg(
                 Arg::new("input-file")
-                .short('i')
-                .long("input-file")
                 .required(false)
-                .takes_value(true)
                 .value_parser(clap::value_parser!(String))
                 .help("file containing stats")
+                )
+            .group(
+                ArgGroup::new("key")
+                .args(&["file", "hash", "title", "path", "trackid"])
                 )
             )
         .subcommand(
@@ -350,9 +381,19 @@ fn main() {
         Some(("listen", subm)) => listener::listen(&mut client, subm, use_tags),
         Some(("get-stats", subm)) => stats::get_stats(&mut client, subm, use_tags),
         Some(("set-stats", subm)) => stats::set_stats(&mut client, subm, use_tags),
-        Some(("import", subm)) => stats::import_stats(&mut client, subm, use_tags, arguments.contains_id("confirm")),
+        Some(("import", subm)) => stats::import_stats(
+            &mut client,
+            subm,
+            use_tags,
+            arguments.contains_id("confirm"),
+        ),
         Some(("export", subm)) => stats::export_stats(&mut client, subm, use_tags),
-        Some(("clear", subm)) => stats::clear_stats(&mut client, subm, use_tags, arguments.contains_id("confirm")),
+        Some(("clear", subm)) => stats::clear_stats(
+            &mut client,
+            subm,
+            use_tags,
+            arguments.contains_id("confirm"),
+        ),
         _ => {}
     }
 }

@@ -52,11 +52,26 @@ impl std::ops::Add for Statistics {
     }
 }
 
-impl std::ops::AddAssign for Statistics{
+impl std::ops::AddAssign for Statistics {
     fn add_assign(&mut self, rhs: Self) {
-        self.play_cnt+= rhs.play_cnt;
-        self.skip_cnt+= rhs.skip_cnt;
+        self.play_cnt += rhs.play_cnt;
+        self.skip_cnt += rhs.skip_cnt;
     }
+}
+
+#[derive(Debug)]
+/// Key to match when importing stats
+enum ImportMethod<'a> {
+    /// Full path of the song(from mpd_root directory)
+    FullPath(&'a str),
+    /// Compare just filename
+    FileName(&'a str),
+    /// Match using title from the tag
+    Title(&'a str),
+    /// Generate the hash of the song and match
+    Hash(u64),
+    /// Mtach using trackid of the tag
+    TrackId(u64),
 }
 
 /// gets the stats from mpd sticker database.
@@ -433,6 +448,34 @@ struct SavedStats {
     stats: Statistics,
 }
 
+/// Returns reference to song from `song_list` based on ImportMethod
+fn get_song_by_key<'a>(key: &ImportMethod, song_list: &'a [mpd::Song]) -> Option<&'a mpd::Song> {
+    match key {
+        ImportMethod::FullPath(fpath) => {
+            for song in song_list {
+                if song.file == *fpath {
+                    return Some(song);
+                }
+            }
+            None
+        }
+        ImportMethod::FileName(fname) => {
+            let key_path_buf = path::PathBuf::from(fname);
+            if let Some(file_name) = key_path_buf.file_name() {
+                for song in song_list.iter() {
+                    let file_path = path::PathBuf::from(&song.file);
+                    if file_path.file_name() == Some(file_name) {
+                        return Some(song);
+                    }
+                }
+            }
+            None
+        }
+        ImportMethod::Title(_) => todo!(),
+        ImportMethod::Hash(_) => todo!(),
+        ImportMethod::TrackId(_) => todo!(),
+    }
+}
 
 /// imports stats from a given file
 pub fn import_stats(
@@ -451,42 +494,81 @@ pub fn import_stats(
             serde_json::from_reader(std::io::stdin()).unwrap()
         };
     info!("found {} elements", reader.len());
+    let song_list = client.listall().unwrap();
+    // TODO: clean this dirt
+    let key_type = if subc.contains_id("file") {
+        info!("Getting stats based on filename");
+        1
+    } else if subc.contains_id("title") {
+        info!("Getting stats based on title");
+        2
+    } else if subc.contains_id("trackid") {
+        info!("Getting stats based on trackid");
+        3
+    } else if subc.contains_id("hash") {
+        info!("Getting stats based on hash");
+        4
+    } else {
+        info!("Getting stats based on fullpath");
+        5
+    };
+    // if merge is set add present and new value
     let merge = subc.contains_id("merge");
     reader.iter_mut().for_each(|saved_stats|{
-        info!("importing stats to {}", saved_stats.path);
-        if use_tags{
-            let mut full_path = path::PathBuf::from(ROOT_DIR.get().expect("statistics to tag requires full path, try to use --socket-file or set root-dir manually"));
-            full_path.push(&saved_stats.path);
-            debug!("Full path {:?}", full_path);
-            if full_path.is_file(){
+        let import_meth = match key_type{
+            1 => ImportMethod::FileName(&saved_stats.path),
+            2 => todo!(),
+            3 => todo!(),
+            4 => todo!(),
+            _ => ImportMethod::FullPath(&saved_stats.path),
+        };
+        info!("importing stats {:?} to {}", saved_stats.stats, saved_stats.path);
+        if let Some(found_song) =get_song_by_key(&import_meth, &song_list){
+            let relative_path = &found_song.file;
+            if use_tags{
+                let mut full_path = path::PathBuf::from(ROOT_DIR.get().expect("statistics to tag requires full path, try to use --socket-file or set root-dir manually"));
+                full_path.push(relative_path);
+                debug!("Full path {:?}", full_path);
+                if full_path.is_file(){
+                    if merge{
+                        if let Ok(old_stats) = stats_from_tag(&full_path){
+                            debug!("adding old stats {:?}", old_stats);
+                            saved_stats.stats+= old_stats;
+                        }else{
+                            debug!("no old stats for {:?}", full_path);
+                        };
+                    }
+                    // if confirm all is set then no need to check else ask for user confirmation
+                    if!confirm_all{
+                        print!("import {full_path:?} - {:?}, Confirm: Y(all)/y(this)/[n](no)", saved_stats.stats);
+                        if !confirm_user(&mut confirm_all){
+                            return
+                        }
+                    }
+                    stats_to_tag(&full_path, &saved_stats.stats).unwrap_or_else(|err| warn!("failed to write stats to {:?}, due to : {:?}", full_path, err));
+                }else{
+                    warn!("skipping {}: No such file or directory", saved_stats.path);
+                }
+            }else{
                 if merge{
-                    if let Ok(old_stats) = stats_from_tag(&full_path){
-                        saved_stats.stats+= old_stats;
+                    if let Ok(old_stats) = stats_from_sticker(client, &path::PathBuf::from(&saved_stats.path)){
+                        debug!("adding old stats {:?}", old_stats);
+                        saved_stats.stats+=old_stats;
+                    }else{
+                        debug!("no old stats for {:?}", saved_stats.path);
                     };
                 }
+                // if confirm all is set then no need to check else ask for user confirmation
                 if!confirm_all{
-                    print!("import {full_path:?} - {:?}, Confirm: Y(all)/y(this)/[n](no)", saved_stats.stats);
+                    print!("import {} - {:?}, Confirm Y(all)/y(this)/[n](no):", saved_stats.path, saved_stats.stats);
                     if !confirm_user(&mut confirm_all){
                         return
                     }
                 }
-                stats_to_tag(&full_path, &saved_stats.stats).unwrap_or_else(|err| warn!("failed to write stats to {:?}, due to : {:?}", full_path, err));
-            }else{
-                warn!("skipping {}: No such file or directory", saved_stats.path);
+                stats_to_sticker(client, &path::PathBuf::from(relative_path), &saved_stats.stats).unwrap_or_else(|err| warn!("failed update sticker with stats to {:?}, due to : {:?}", saved_stats.path, err));
             }
         }else{
-            if merge{
-                if let Ok(old_stats) = stats_from_sticker(client, &path::PathBuf::from(&saved_stats.path)){
-                    saved_stats.stats+=old_stats;
-                };
-            }
-            if!confirm_all{
-                print!("import {} - {:?}, Confirm Y(all)/y(this)/[n](no):", saved_stats.path, saved_stats.stats);
-                if !confirm_user(&mut confirm_all){
-                    return
-                }
-            }
-            stats_to_sticker(client, &path::PathBuf::from(&saved_stats.path), &saved_stats.stats).unwrap_or_else(|err| warn!("failed update sticker with stats to {:?}, due to : {:?}", saved_stats.path, err));
+            warn!("Failed to find the song \"{}\" for importing", saved_stats.path);
         }
     });
 }
