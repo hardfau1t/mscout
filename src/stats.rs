@@ -59,6 +59,17 @@ impl std::ops::AddAssign for Statistics {
     }
 }
 
+/// Sorting order for get-stats output
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum SortOrder {
+    /// sort by combined stats
+    Stats,
+    /// sort by play count
+    PlayCount,
+    /// sort by skip count
+    SkipCount,
+}
+
 #[derive(Debug)]
 /// Key to match when importing stats
 enum ImportMethod<'a> {
@@ -347,14 +358,40 @@ pub fn get_stats(client: &mut mpd::Client<ConnType>, args: &clap::ArgMatches, us
     }
 
     // Sort the songs by ratings
-    with_ratings.sort_by(|s1, s2| {
-        if args.is_present("reverse") {
-            s2.1.get_ratings().partial_cmp(&s1.1.get_ratings()).unwrap()
-        } else {
-            s1.1.get_ratings().partial_cmp(&s2.1.get_ratings()).unwrap()
+    let reverse_order = args.is_present("reverse");
+    if let Some(sort_order) = args.get_one::<SortOrder>("sort") {
+        match sort_order {
+            SortOrder::Stats => {
+                with_ratings.sort_by(|s1, s2| {
+                    if reverse_order{
+                        s2.1.get_ratings().partial_cmp(&s1.1.get_ratings()).unwrap()
+                    } else {
+                        s1.1.get_ratings().partial_cmp(&s2.1.get_ratings()).unwrap()
+                    }
+                });
+            }
+            SortOrder::PlayCount => {
+                with_ratings.sort_by(|s1, s2| {
+                    if reverse_order{
+                        s2.1.play_cnt.partial_cmp(&s1.1.play_cnt).unwrap()
+                    } else {
+                        s1.1.play_cnt.partial_cmp(&s2.1.play_cnt).unwrap()
+                    }
+                });
+            },
+            SortOrder::SkipCount => {
+                with_ratings.sort_by(|s1, s2| {
+                    if reverse_order{
+                        s2.1.skip_cnt.partial_cmp(&s1.1.skip_cnt).unwrap()
+                    } else {
+                        s1.1.skip_cnt.partial_cmp(&s2.1.skip_cnt).unwrap()
+                    }
+                });
+
+            },
         }
-    });
-    // -------------- print all teh stats----------------------------
+    }
+    // -------------- print all the stats----------------------------
     for (song, rating) in with_ratings {
         if args.is_present("stats") {
             if args.is_present("json") {
@@ -641,9 +678,8 @@ pub fn clear_stats(
         if use_tags{
             let mut pth = path::PathBuf::from(ROOT_DIR.get().expect("statistics to tag requires full path, try to use --socket-file or set root-dir manually"));
             pth.push(&song.file);
-            debug!("resetting tagged stats for {:?}", pth);
             if!confirm_all{
-                print!("Stats of {pth:?} will be reset to 0, Confirm: Y(all)/y(this)/[n](no)");
+                print!("Stats of {pth:?} will be reset to {stat:?}, Confirm: Y(all)/y(this)/[n](no)");
                 if !confirm_user(&mut confirm_all){
                     return
                 }
@@ -652,7 +688,7 @@ pub fn clear_stats(
         }else{
             debug!("resetting sticker stats for {}", song.file);
             if!confirm_all{
-                print!("Stats of {} will be reset to 0, Confirm Y(all)/y(this)/[n](no):", song.file);
+                print!("Stats of {} will be reset to {stat:?}, Confirm Y(all)/y(this)/[n](no):", song.file);
                 if !confirm_user(&mut confirm_all){
                     return
                 }

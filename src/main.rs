@@ -141,6 +141,14 @@ fn main() {
                 .help("reverse the order of list is printed")
                 )
             .arg(
+                Arg::new("sort")
+                .long("sort")
+                .takes_value(true)
+                .value_parser(clap::value_parser!(stats::SortOrder))
+                .default_value("stats")
+                .help("sorting order of the output")
+                )
+            .arg(
                 Arg::new("previous")
                 .short('p')
                 .long("prev")
