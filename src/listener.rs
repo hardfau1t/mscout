@@ -177,7 +177,7 @@ impl ListenerState {
                         self, status.elapsed
                     );
                     if let Some(s) = next {
-                        if s.0 == status.song.expect("report!!! This should not be NULL").id.0 {
+                        if s.0 == status.song.expect("report!!! This should not be NULL").id.0  && !status.single{
                             return Action::Skipped(curr);
                         }
                     };
