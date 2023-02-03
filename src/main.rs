@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![feature(string_leak)]
 #![warn(clippy::missing_docs_in_private_items)]
 
 //! This crate provides a way to set or get ratings for songs based on listening statistics.

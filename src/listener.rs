@@ -177,7 +177,9 @@ impl ListenerState {
                         self, status.elapsed
                     );
                     if let Some(s) = next {
-                        if s.0 == status.song.expect("report!!! This should not be NULL").id.0  && !status.single{
+                        if s.0 == status.song.expect("report!!! This should not be NULL").id.0
+                            && !status.single
+                        {
                             return Action::Skipped(curr);
                         }
                     };
@@ -250,7 +252,19 @@ impl ListenerState {
 
 /// checks if any other instance of listener is running, if not then create flag file indicating that a listener is running
 fn init_listener(notif: &mut notify_rust::Notification) {
-    let lock_file = "/tmp/mp_rater.lck";
+    let lock_file = if cfg!(target_os = "linux") {
+        "/tmp/mp_rater.lck"
+    } else if cfg!(target_os = "android") {
+        if let Ok(_) = std::env::var("TERMUX_VERSION") {
+            std::env::var("TMP_DIR")
+                .expect("TMP directory is not set in termux")
+                .leak()
+        } else {
+            panic!("only termux on android is support raise an issue for support");
+        }
+    } else {
+        panic!("given operating system is not supported rais issue for support");
+    };
     if let Err(err) = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
