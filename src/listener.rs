@@ -250,14 +250,20 @@ impl ListenerState {
     }
 }
 
+const LOCK_NAME: &str = "mp_rater.lck";
+
 /// checks if any other instance of listener is running, if not then create flag file indicating that a listener is running
 fn init_listener(notif: &mut notify_rust::Notification) {
     let lock_file = if cfg!(target_os = "linux") {
-        "/tmp/mp_rater.lck"
+        let mut pth = PathBuf::from("/tmp/");
+        pth.push(LOCK_NAME);
+        pth
     } else if cfg!(target_os = "android") {
         if let Ok(_) = std::env::var("TERMUX_VERSION") {
-            Box::leak(Box::new(std::env::var("TMP_DIR")
-                .expect("TMP directory is not set in termux"))).as_str()
+            let mut pth =
+                PathBuf::from(std::env::var("TMPDIR").expect("TMP directory is not set in termux"));
+            pth.push(LOCK_NAME);
+            pth
         } else {
             panic!("only termux on android is support raise an issue for support");
         }
@@ -267,7 +273,7 @@ fn init_listener(notif: &mut notify_rust::Notification) {
     if let Err(err) = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(lock_file)
+        .open(&lock_file)
     {
         match err.kind() {
             std::io::ErrorKind::AlreadyExists => {
