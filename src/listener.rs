@@ -256,9 +256,8 @@ fn init_listener(notif: &mut notify_rust::Notification) {
         "/tmp/mp_rater.lck"
     } else if cfg!(target_os = "android") {
         if let Ok(_) = std::env::var("TERMUX_VERSION") {
-            std::env::var("TMP_DIR")
-                .expect("TMP directory is not set in termux")
-                .leak()
+            Box::leak(Box::new(std::env::var("TMP_DIR")
+                .expect("TMP directory is not set in termux"))).as_str()
         } else {
             panic!("only termux on android is support raise an issue for support");
         }
