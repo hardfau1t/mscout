@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "mp_rater"
+name = "mpr"
 version = "0.2.0"
 [dependencies]
 env_logger = "0.9"

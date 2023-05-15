@@ -1,4 +1,4 @@
-# mp_rater
+# mpr
 Its a plugin for mpd, which handles rating for each song based on play count and skip counts.
 
 NOTE: This doesn't work if consume is enabled
@@ -15,11 +15,11 @@ building from source
 * `Git clone https://github.com/hardfau18/mp_rater.git`
 * `cd mp_rater`
 * `cargo build --release`
-* `cp target/release/mp_rater ~/.local/bin`
+* `cp target/release/mpr ~/.local/bin`
 * if `~/.local/bin/` path is not set then `export PATH=~/.local/bin:$PATH`. To make it permanent add it in `~/.bashrc` file.
 
 ## Running
-To run `mp_rater`, `mpd` should be running in background and should be listening on the local network socket or unix socket file.
+To run `mpr`, `mpd` should be running in background and should be listening on the local network socket or unix socket file.
 To configure mpd to listening on network socket add these two lines to mpd.conf file.
 ```
 bind_to_address   "any"
@@ -42,31 +42,31 @@ If you don't want give `--use-tags` each time you can `export MP_RATER_USE_TAGS=
 #### examples: 
 For listening on network socket with mpd  sticker database
 
-`mp_rater -a 127.0.0.1:6600 -L`
+`mpr -a 127.0.0.1:6600 -L`
 
 For listening on network socket with id3 tags
 
-`mp_rater -a 127.0.0.1:6600 --use-tags -r <mpd music directory > -L`
+`mpr -a 127.0.0.1:6600 --use-tags -r <mpd music directory > -L`
 
 For listening on socket file with id3 tags
 
-`mp_rater -p ~/.local/run/mpd/socket --use-tags -L`
+`mpr -p ~/.local/run/mpd/socket --use-tags -L`
 
 ### retrieving ratings.
 To get rating for a particular song use get-stats option. For example to get stats for current song
 
-`mp_rater -a 127.0.0.1:6600 -G --current`
+`mpr -a 127.0.0.1:6600 -G --current`
 
 Or to get stats for any other song, give a path relative to mpd music directory
 
-`mp_rater -a 127.0.0.1:6600 -G <relative path to song>`
+`mpr -a 127.0.0.1:6600 -G <relative path to song>`
 
 To get stats from whole playlist.
 
-`mp_rater -G --playlist <playlist> ...`
+`mpr -G --playlist <playlist> ...`
 
 To get stats from currrent queue.
 
-`mp_rater -G -Q `
+`mpr -G -Q `
 
 use -s flags to get exact play and skip count
