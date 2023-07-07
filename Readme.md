@@ -36,7 +36,7 @@ There are 2 ways to store stats of songs.
 By default mpd database is used to store ratings. But this is not persistent. If you move any files to a separate directories then all of the ratings of those files will reset.
 id3 tags store the rating even if you move the songs. ratings will be saved in comment section of id3 tag of respective song. If you want to use id3 tags use `--socket-path <path to socket file>` option or `--root-dir <path to mpd music directory>` and with that `--use-tags` option.
 
-If you don't want give `--use-tags` each time you can `export MP_RATER_USE_TAGS=1` variable.
+If you don't want give `--use-tags` each time you can `export MPR_USE_TAGS=1` variable.
 
 
 #### examples: 

@@ -282,13 +282,13 @@ fn init_listener(notif: &mut notify_rust::Notification) {
                 println!(
                     "Already another instance is running!!!\n\
                     kill that instance to start another.\n\
-                    if not running then remove /tmp/mp_rater.lck file"
+                    if not running then remove /tmp/mpr.lck file"
                 );
             }
             _ => error!("failed to check for instance {:?}", err),
         }
         notif
-            .body("Failed to start mp_rater may be already started")
+            .body("Failed to start mpr may be already started")
             .show()
             .ok();
         exit(1);
@@ -298,7 +298,7 @@ fn init_listener(notif: &mut notify_rust::Notification) {
     std::thread::spawn(move || {
         for sig in signals.forever() {
             Notification::new()
-                .summary("mp_rater")
+                .summary("mpr")
                 .timeout(10000)
                 .urgency(Urgency::Low)
                 .icon("/usr/share/icons/Adwaita/scalable/devices/media-optical-dvd-symbolic.svg")
@@ -317,7 +317,7 @@ fn init_listener(notif: &mut notify_rust::Notification) {
 pub fn listen(client: &mut mpd::Client<ConnType>, use_tags: bool) -> ! {
     let mut notif = Notification::new();
     notif
-        .summary("mp_rater")
+        .summary("mpr")
         .timeout(10000)
         .urgency(Urgency::Low)
         .icon("/usr/share/icons/Adwaita/scalable/devices/media-optical-dvd-symbolic.svg");

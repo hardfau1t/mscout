@@ -7,7 +7,7 @@ mod error;
 mod listener;
 mod stats;
 use clap::{Parser, Subcommand};
-use log::{debug, trace, warn};
+use log::{debug, error, trace, warn};
 use once_cell::sync::OnceCell;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -72,7 +72,7 @@ enum Commands {
         #[arg(short, long)]
         out_file: Option<PathBuf>,
         /// exports with songs hash. this way songs name is not required to be matching
-        #[arg(short='H', long)]
+        #[arg(short = 'H', long)]
         hash: bool,
     },
     /// import stats from a file
@@ -103,8 +103,8 @@ struct Config {
     /// sets the verbose level, use multiple times for more verbosity. By default all the logs are written to stderr
     #[arg(short, long, action=clap::ArgAction::Count)]
     verbose: u8,
-    /// use eyed3 tags to store ratings. If not specified by default mpd stickers are used. tags are persistante across file moves, where as incase of mpd sticker these will be erased if you move the files. Else you can set mpr_USE_TAGS=1 in environment variable
-    #[arg(short = 't', long, env = "mpr_USE_TAGS")]
+    /// use eyed3 tags to store ratings. If not specified by default mpd stickers are used. tags are persistante across file moves, where as incase of mpd sticker these will be erased if you move the files.
+    #[arg(short = 't', long, env = "MPR_USE_TAGS")]
     use_tags: bool,
     /// path to mpd socket.
     /// if both path and socket address are specified, then path has higher priority.
@@ -139,16 +139,26 @@ fn main() {
         }
     }
     debug!("log_level set to {:?}", log::max_level());
-
+    if arguments.use_tags {
+        debug!("Using tags for storing stats");
+    }
     let mut client = {
         debug!("trying to connect to unix stream {}", arguments.socket_path);
         std::os::unix::net::UnixStream::connect(arguments.socket_path).map_or_else(
             |err| {
                 warn!("Failed to connect to unix stream due to {err}");
                 debug!("connecting to TcpStream {}", arguments.socket_address);
-                if let Some(root_dir) = &arguments.root_dir {
-                    ROOT_DIR.set(root_dir.to_path_buf()).unwrap();
-                };
+                if arguments.use_tags {
+                    if let Some(root_dir) = &arguments.root_dir {
+                        debug!("Setting mpd root-dir to {:?}", root_dir);
+                        ROOT_DIR.set(root_dir.to_path_buf()).unwrap();
+                    } else {
+                        error!(
+                            "for socket connection if tags are required then root-dir must be set"
+                        );
+                        std::process::exit(1);
+                    }
+                }
                 mpd::Client::new(ConnType::Socket(
                     std::net::TcpStream::connect(arguments.socket_address).unwrap(),
                 ))
