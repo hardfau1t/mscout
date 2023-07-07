@@ -6,15 +6,14 @@
 mod error;
 mod listener;
 mod stats;
-use clap::{Arg, ArgGroup, Command};
-use log::{debug, error, trace};
+use clap::{Parser, Subcommand};
+use log::{debug, trace, warn};
 use once_cell::sync::OnceCell;
 use std::io::{Read, Write};
-use std::path::Path;
-use std::process::exit;
+use std::path::PathBuf;
 
 /// header name which will be used on either mpd's sticker database or tags for identifications
-pub const MP_DESC: &str = "mp_rater";
+pub const MP_DESC: &str = "mpr";
 
 /// defines connection type for the mpd.
 #[derive(Debug)]
@@ -52,304 +51,88 @@ impl Write for ConnType {
 
 /// contains root dir string optionally either if the user passes through cmdline or if the unix
 /// socket file is given
-static ROOT_DIR: OnceCell<String> = OnceCell::new();
+static ROOT_DIR: OnceCell<PathBuf> = OnceCell::new();
+
+/// Subcommands for config options
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// listens for mpd events
+    #[command()]
+    Listen,
+    /// extracts stats of given songs
+    #[command()]
+    GetStats(stats::GetStatsConfig),
+    /// manually set stats for a perticular song, it should be in json
+    #[command()]
+    SetStats(stats::SetStatsConfig),
+    /// export stats to a file
+    #[command()]
+    Export {
+        /// output file[default it write to stdout]
+        #[arg(short, long)]
+        out_file: Option<PathBuf>,
+        /// exports with songs hash. this way songs name is not required to be matching
+        #[arg(short='H', long)]
+        hash: bool,
+    },
+    /// import stats from a file
+    #[command()]
+    Import {
+        /// strategy to import songs
+        #[arg(value_enum, short='M', long, default_value_t=stats::ImportMethodConfig::Path)]
+        method: stats::ImportMethodConfig,
+        /// import stats and if there is already stats available then add both
+        #[arg(short, long)]
+        merge: bool,
+        /// file containing stats, if not present then reads it from stdin
+        #[arg()]
+        input_file: Option<PathBuf>,
+    },
+    /// resets all stats to 0
+    #[command()]
+    Clear,
+}
+
+/// Arguments for mpr
+#[derive(Parser, Debug)]
+#[command(author, version, about)]
+struct Config {
+    /// Confirm to all prompts with y
+    #[arg(short, long)]
+    yes: bool,
+    /// sets the verbose level, use multiple times for more verbosity. By default all the logs are written to stderr
+    #[arg(short, long, action=clap::ArgAction::Count)]
+    verbose: u8,
+    /// use eyed3 tags to store ratings. If not specified by default mpd stickers are used. tags are persistante across file moves, where as incase of mpd sticker these will be erased if you move the files. Else you can set mpr_USE_TAGS=1 in environment variable
+    #[arg(short = 't', long, env = "mpr_USE_TAGS")]
+    use_tags: bool,
+    /// path to mpd socket.
+    /// if both path and socket address are specified, then path has higher priority.
+    /// If  this flag is set then music directory is automatically taken from mpd"
+    #[arg(short='p', long, default_value_t=format!("{}/.local/run/mpd/socket", std::env::var("HOME").unwrap_or_else(|_|".".to_string())))]
+    socket_path: String,
+    /// mpd's root directory
+    #[arg(short, long)]
+    root_dir: Option<std::path::PathBuf>,
+    /// mpd socket address. <host>:<port> ex. -a 127.0.0.1:6600
+    #[arg(short = 'a', long, default_value = "127.0.0.1:6600")]
+    socket_address: String,
+    /// subcommands for mpr
+    #[command(subcommand)]
+    command: Commands,
+}
 
 fn main() {
     let mut builder = env_logger::builder();
-    let arguments = Command::new("mp rater")
-        .version("0.1.0")
-        .author("hardfau18 <the.qu1rky.b1t@gmail.com>")
-        .about("rates song with skip/rate count for mpd")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .arg(
-            Arg::new("confirm")
-            .short('y')
-            .long("yes")
-            .help("Confirm to all prompts")
-            )
-        .arg(
-            Arg::new("verbose")
-                .short('v')
-                .global(true)
-                .multiple_occurrences(true)
-                .long("verbose")
-                .help("sets the verbose level, use multiple times for more verbosity. By default all the logs are written to stderr")
-        )
-            .arg(
-                Arg::new("use-tags")
-                .short('t')
-                .long("use-tags")
-                .env("MP_RATER_USE_TAGS")
-                .help("use eyed3 tags to store ratings. If not specified by default mpd stickers are used. tags are persistante across file moves, where as incase of mpd sticker these will be erased if you move the files. Else you can set MP_RATER_USE_TAGS=1 in environment variable")
-                )
-        .arg(Arg::new("socket-path")
-         .short('p')
-            .long("socket-path")
-            .default_value(&format!("{}/.local/run/mpd/socket", std::env::var("HOME").unwrap_or_else(|_|".".to_string())))
-            .takes_value(true)
-            .help("path to mpd socket. \
-                By default it will check in ~/.local/run/mpd/socket.\
-                if both path and socket address are specified, then path has higher priority.
-                If  this flag is set then music directory is automatically taken from mpd")
-            )
-        .arg(Arg::new("root-dir")
-            .short('r')
-            .long("root-dir")
-            .takes_value(true)
-            .validator(|pth|{
-                if Path::new(&pth).is_dir(){
-                Ok(())
-            }else{
-                Err(format!("invalid root-dir {}", pth))
-            }
-            })
-            .help("mpd music directory")
-            )
-        .arg(Arg::new("socket-address")
-            .short('a')
-            .long("socket-address")
-            .default_value("127.0.0.1:6600")
-            .takes_value(true)
-            .help("mpd socket address. <host>:<port> ex. -a 127.0.0.1:6600 \
-                default value is 127.0.0.1:6600\
-                ")
-            )
-        .subcommand(
-            Command::new("listen")
-            .short_flag('L')
-            .long_flag("listen")
-            .about("listens for mpd events")
-        )
-        .subcommand(
-            Command::new("get-stats")
-            .short_flag('G')
-            .long_flag("get-stats")
-            .about("get the stats of a specific song")
-            .arg(
-                Arg::new("current")
-                .short('c')
-                .long("current")
-                .takes_value(false)
-                .help("prints stats of a current song")
-                )
-            .arg(
-                Arg::new("reverse")
-                .short('r')
-                .long("reverse")
-                .takes_value(false)
-                .help("reverse the order of list is printed")
-                )
-            .arg(
-                Arg::new("sort")
-                .long("sort")
-                .takes_value(true)
-                .value_parser(clap::value_parser!(stats::SortOrder))
-                .default_value("stats")
-                .help("sorting order of the output")
-                )
-            .arg(
-                Arg::new("previous")
-                .short('p')
-                .long("prev")
-                .takes_value(false)
-                .help("previous song")
-                )
-            .arg(
-                Arg::new("next")
-                .short('n')
-                .long("next")
-                .takes_value(false)
-                .help("next song")
-                )
-            .arg(
-                Arg::new("playlist")
-                .short('P')
-                .takes_value(true)
-                .multiple_occurrences(true)
-                .long("playlist")
-                .help("prints the stats for the whole playlist")
-                )
-            .arg(
-                Arg::new("queue")
-                .short('Q')
-                .long("queue")
-                .help("prints the stats for current playing playlist/queue")
-                )
-            .arg(Arg::new("stats")
-                .short('s')
-                .long("stats")
-                .help("prints the exact stats instead of a single rating number")
-                )
-            .arg(
-                Arg::new("json")
-                .short('j')
-                .long("json")
-                .requires("stats")
-                .help("print stats in json format")
-                )
-            .arg(
-                Arg::new("path")
-                .multiple_values(true)
-                .help("relative path from music directory configured in mpd")
-                // TODO: configure whether to use positional arguments or optional args
-                )
-            )
-        .subcommand(
-            Command::new("set-stats")
-            .short_flag('S')
-            .long_flag("set-stats")
-            .about("manually set stats for a perticular song, it should be in json")
-            .arg(
-                Arg::new("current")
-                .short('c')
-                .long("current")
-                .takes_value(false)
-                .help("prints stats of a current song")
-                )
-            .arg(
-                Arg::new("path")
-                .required_unless_present("current")
-                .multiple_values(false)
-                .help("relative path from music directory configured in mpd")
-                // TODO: configure whether to use positional arguments or optional args
-                )
-            .arg(
-                Arg::new("skip_cnt")
-                .short('u')
-                .long("skip-count")
-                .takes_value(true)
-                .conflicts_with("stats")
-                .help("set the skip count for the song")
-                )
-            .arg(
-                Arg::new("play_cnt")
-                .short('p')
-                .long("play-count")
-                .takes_value(true)
-                .conflicts_with("stats")
-                .help("set the play count for the song")
-                )
-            .arg(
-                Arg::new("stats")
-                .short('s')
-                .long("stats")
-                .takes_value(true)
-                .required_unless_present_any(&["play_cnt","skip_cnt"])
-                .help("stats in json format. example: {\"play_cnt\":11,\"skip_cnt\":0}")
-                )
-            )
-        .subcommand(
-            Command::new("export")
-            .short_flag('E')
-            .long_flag("export")
-            .about("export stats to a file")
-            .arg(
-                Arg::new("out-file")
-                .required(false)
-                .short('o')
-                .long("out-file")
-                .takes_value(true)
-                .value_parser(clap::value_parser!(String))
-                .help("output file[default it write to stdout]")
-                )
-            .arg(
-                Arg::new("hash")
-                .short('H')
-                .long("hash")
-                .takes_value(false)
-                .help("exports with songs hash. this way songs name is not required to be matching")
-                )
-            )
-        .subcommand(
-            Command::new("import")
-            .short_flag('I')
-            .long_flag("import")
-            .about("import stats from a file")
-            .arg(
-                Arg::new("hash")
-                .short('H')
-                .long("hash")
-                .takes_value(false)
-                .help("imports using hashes as key, songs need to have the same name as exported ones. but it supports only for tags not for stickers")
-                )
-            .arg(
-                Arg::new("file")
-                .short('f')
-                .long("file")
-                .takes_value(false)
-                .help("imports stats using base filename as key")
-                )
-            .arg(
-                Arg::new("trackid")
-                .short('i')
-                .long("track-id")
-                .takes_value(false)
-                .help("imports stats by taking trackid as key")
-                )
-            .arg(
-                Arg::new("title")
-                .short('t')
-                .long("title")
-                .takes_value(false)
-                .help("imports by taking title as key")
-                )
-            .arg(
-                Arg::new("path")
-                .short('p')
-                .long("path")
-                .takes_value(false)
-                .help("[default] imports by taking path from mpd_root directory as key")
-                )
-            .arg(
-                Arg::new("merge")
-                .short('m')
-                .long("merge")
-                .takes_value(false)
-                .help("import stats and if there is already stats available then add both")
-                )
-            .arg(
-                Arg::new("input-file")
-                .required(false)
-                .value_parser(clap::value_parser!(String))
-                .help("file containing stats")
-                )
-            .group(
-                ArgGroup::new("key")
-                .args(&["file", "hash", "title", "path", "trackid"])
-                )
-            )
-        .subcommand(
-            Command::new("clear")
-            .long_flag("clear-stats")
-            .about("resets all stats to 0")
-            .arg(
-                Arg::new("confirm")
-                .short('y')
-                .takes_value(false)
-                .long("yes")
-                .help("yes to confirm. dont ask for prompt")
-                )
-            )
-        .get_matches();
+    let arguments = Config::parse();
 
     // set the verbosity
-    match arguments.occurrences_of("verbose") {
-        0 => builder
-            .filter_module("mp_rater", log::LevelFilter::Error)
-            .init(),
-        1 => builder
-            .filter_module("mp_rater", log::LevelFilter::Warn)
-            .init(),
-        2 => builder
-            .filter_module("mp_rater", log::LevelFilter::Info)
-            .init(),
-        3 => builder
-            .filter_module("mp_rater", log::LevelFilter::Debug)
-            .init(),
-        4 => builder
-            .filter_module("mp_rater", log::LevelFilter::Trace)
-            .init(),
+    match arguments.verbose {
+        0 => builder.filter_module("mpr", log::LevelFilter::Error).init(),
+        1 => builder.filter_module("mpr", log::LevelFilter::Warn).init(),
+        2 => builder.filter_module("mpr", log::LevelFilter::Info).init(),
+        3 => builder.filter_module("mpr", log::LevelFilter::Debug).init(),
+        4 => builder.filter_module("mpr", log::LevelFilter::Trace).init(),
         _ => {
             builder.filter_level(log::LevelFilter::Trace).init();
             trace!("wait one of the rust expert is coming to debug");
@@ -357,51 +140,48 @@ fn main() {
     }
     debug!("log_level set to {:?}", log::max_level());
 
-    let get_sock = || {
-        let address = arguments.value_of("socket-address").unwrap();
-        debug!("connecting to TcpStream {}", address);
-        ConnType::Socket(std::net::TcpStream::connect(address).unwrap())
+    let mut client = {
+        debug!("trying to connect to unix stream {}", arguments.socket_path);
+        std::os::unix::net::UnixStream::connect(arguments.socket_path).map_or_else(
+            |err| {
+                warn!("Failed to connect to unix stream due to {err}");
+                debug!("connecting to TcpStream {}", arguments.socket_address);
+                if let Some(root_dir) = &arguments.root_dir {
+                    ROOT_DIR.set(root_dir.to_path_buf()).unwrap();
+                };
+                mpd::Client::new(ConnType::Socket(
+                    std::net::TcpStream::connect(arguments.socket_address).unwrap(),
+                ))
+                .unwrap()
+            },
+            |conn| {
+                let mut client = mpd::Client::new(ConnType::Stream(conn)).unwrap();
+                ROOT_DIR
+                    .set(PathBuf::from(client.music_directory().unwrap()))
+                    .unwrap();
+                client
+            },
+        )
     };
-
-    // if the socket address is manually given then use socket address only
-    let con_t = if let Some(stream_path) = arguments.value_of("socket-path") {
-        debug!("connecting to unix stream {}", stream_path);
-        std::os::unix::net::UnixStream::connect(stream_path)
-            .map_or_else(|_| get_sock(), ConnType::Stream)
-    } else {
-        get_sock()
-    };
-    let mut client = mpd::Client::new(con_t).unwrap();
-    let use_tags = arguments.is_present("use-tags");
-    if use_tags {
-        if arguments.is_present("socket-path") {
-            ROOT_DIR.set(client.music_directory().unwrap()).unwrap();
-        } else if arguments.is_present("root-dir") {
-            ROOT_DIR
-                .set(arguments.value_of("root-dir").unwrap().to_string())
-                .unwrap();
-        } else {
-            error!("root dir is not found, either use socket-path or mention root_dir manually");
-            exit(1);
+    match arguments.command {
+        Commands::Listen => listener::listen(&mut client, arguments.use_tags),
+        Commands::GetStats(config) => stats::get_stats(&mut client, &config, arguments.use_tags),
+        Commands::SetStats(config) => stats::set_stats(&mut client, &config, arguments.use_tags),
+        Commands::Import {
+            method,
+            merge,
+            input_file,
+        } => stats::import_stats(
+            &mut client,
+            method,
+            input_file,
+            merge,
+            arguments.use_tags,
+            arguments.yes,
+        ),
+        Commands::Export { out_file, hash } => {
+            stats::export_stats(&mut client, out_file, hash, arguments.use_tags)
         }
-    }
-    match arguments.subcommand() {
-        Some(("listen", subm)) => listener::listen(&mut client, subm, use_tags),
-        Some(("get-stats", subm)) => stats::get_stats(&mut client, subm, use_tags),
-        Some(("set-stats", subm)) => stats::set_stats(&mut client, subm, use_tags),
-        Some(("import", subm)) => stats::import_stats(
-            &mut client,
-            subm,
-            use_tags,
-            arguments.contains_id("confirm"),
-        ),
-        Some(("export", subm)) => stats::export_stats(&mut client, subm, use_tags),
-        Some(("clear", subm)) => stats::clear_stats(
-            &mut client,
-            subm,
-            use_tags,
-            arguments.contains_id("confirm"),
-        ),
-        _ => {}
+        Commands::Clear => stats::clear_stats(&mut client, arguments.use_tags, arguments.yes),
     }
 }

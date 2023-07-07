@@ -250,7 +250,9 @@ impl ListenerState {
     }
 }
 
-const LOCK_NAME: &str = "mp_rater.lck";
+/// creates a lock file indicating that mpr is running
+/// if mpr crashes and this file is not cleaned up, removie it manually
+const LOCK_NAME: &str = "mpr.lck";
 
 /// checks if any other instance of listener is running, if not then create flag file indicating that a listener is running
 fn init_listener(notif: &mut notify_rust::Notification) {
@@ -259,7 +261,7 @@ fn init_listener(notif: &mut notify_rust::Notification) {
         pth.push(LOCK_NAME);
         pth
     } else if cfg!(target_os = "android") {
-        if let Ok(_) = std::env::var("TERMUX_VERSION") {
+        if std::env::var("TERMUX_VERSION").is_ok() {
             let mut pth =
                 PathBuf::from(std::env::var("TMPDIR").expect("TMP directory is not set in termux"));
             pth.push(LOCK_NAME);
@@ -312,7 +314,7 @@ fn init_listener(notif: &mut notify_rust::Notification) {
 }
 /// listens to mpd events sets the statistics for the song
 /// use_tags: if its true then eyed3 tags will be used else mpd stickers are used to store stats
-pub fn listen(client: &mut mpd::Client<ConnType>, _subc: &clap::ArgMatches, use_tags: bool) -> ! {
+pub fn listen(client: &mut mpd::Client<ConnType>, use_tags: bool) -> ! {
     let mut notif = Notification::new();
     notif
         .summary("mp_rater")

@@ -3,10 +3,15 @@ use crate::{
     error::{CustomEror, Error},
     ConnType, MP_DESC, ROOT_DIR,
 };
+use clap::{Args, ValueEnum};
 use id3::{frame::Comment, Tag};
 use log::{debug, error, info, trace, warn};
 use serde::{Deserialize, Serialize};
-use std::{io::prelude::*, path, process::exit};
+use std::{
+    io::prelude::*,
+    path::{self, PathBuf},
+    process::exit,
+};
 
 // #[derive(Debug)]
 // enum Operation {
@@ -60,7 +65,7 @@ impl std::ops::AddAssign for Statistics {
 }
 
 /// Sorting order for get-stats output
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+#[derive(Debug, ValueEnum, Clone)]
 pub enum SortOrder {
     /// sort by combined stats
     Stats,
@@ -70,8 +75,9 @@ pub enum SortOrder {
     SkipCount,
 }
 
-#[derive(Debug)]
 /// Key to match when importing stats
+// for future implementation
+#[allow(dead_code)]
 enum ImportMethod<'a> {
     /// Full path of the song(from mpd_root directory)
     FullPath(&'a str),
@@ -245,10 +251,73 @@ pub fn stats_to_tag(spath: &std::path::Path, stats: &Statistics) -> Result<(), E
     Ok(())
 }
 
+/// Configuration options for SetStats
+#[derive(Args, Debug)]
+pub struct SetStatsConfig {
+    /// current song stats
+    #[arg(short, long, group("selection"))]
+    current: bool,
+    /// previous song stats
+    #[arg(short, long, group("selection"))]
+    previous: bool,
+    /// next song stats
+    #[arg(short, long, group("selection"))]
+    next: bool,
+    /// relative path from music directory configured in mpd
+    #[arg(group("selection"))]
+    path: String,
+    /// set the skip count for the song
+    #[arg(long, short = 'x')]
+    skip_cnt: Option<u32>,
+    /// set the play count for the song
+    #[arg(long, short = 'y')]
+    play_cnt: Option<u32>,
+    /// stats in json format. example: {\"play_cnt\":11,\"skip_cnt\":0}
+    /// TODO: required_unless_present_any(&["play_cnt","skip_cnt"])
+    #[arg(short, long, conflicts_with_all(["skip_cnt", "play_cnt"]))]
+    stats: Option<String>,
+}
+
+/// Configuration Options for GetStats
+#[derive(Args, Debug)]
+pub struct GetStatsConfig {
+    /// current song stats
+    #[arg(short, long)]
+    current: bool,
+    /// previous song stats
+    #[arg(short, long)]
+    previous: bool,
+    /// next song stats
+    #[arg(short, long)]
+    next: bool,
+    /// reverse the order of list is printed
+    #[arg(short, long)]
+    reverse: bool,
+    /// sorting order of the output
+    #[arg(value_enum, short = 'S', long, default_value_t=SortOrder::Stats)]
+    sort: SortOrder,
+    /// prints the stats for the whole playlist
+    /// TODO enable multiple occurrences
+    #[arg(long, short = 'P')]
+    playlists: Vec<String>,
+    /// prints the stats for current playing playlist/queue
+    #[arg(short = 'Q', long)]
+    queue: bool,
+    /// prints the exact stats instead of a single rating number
+    #[arg(short, long)]
+    stats: bool,
+    /// print stats in json format
+    #[arg(short, long)]
+    json: bool,
+    /// relative path from music directory configured in mpd
+    #[arg()]
+    paths: Vec<String>,
+}
+
 /// extracts song statistics from id3 metadata or mpd's database based on use-tags flags
-pub fn get_stats(client: &mut mpd::Client<ConnType>, args: &clap::ArgMatches, use_tags: bool) {
+pub fn get_stats(client: &mut mpd::Client<ConnType>, config: &GetStatsConfig, use_tags: bool) {
     let mut songs = Vec::new();
-    if args.is_present("current") {
+    if config.current {
         songs.push(path::PathBuf::from(
             client
                 .currentsong()
@@ -263,7 +332,7 @@ pub fn get_stats(client: &mut mpd::Client<ConnType>, args: &clap::ArgMatches, us
     let queue = client
         .queue()
         .try_unwrap("Couldn't get the queue information from mpd");
-    if args.is_present("previous") {
+    if config.previous {
         if let Some(cur) = client
             .currentsong()
             .try_unwrap("Failed to get current song")
@@ -283,7 +352,7 @@ pub fn get_stats(client: &mut mpd::Client<ConnType>, args: &clap::ArgMatches, us
             dbg!("Current song is empty");
         }
     }
-    if args.is_present("next") {
+    if config.next {
         if let Some(cur) = client
             .currentsong()
             .try_unwrap("Failed to get current song")
@@ -308,21 +377,20 @@ pub fn get_stats(client: &mut mpd::Client<ConnType>, args: &clap::ArgMatches, us
         }
     }
     // Collect sogngs
-    if let Some(playlists) = args.values_of("playlist") {
-        for playlist in playlists {
-            debug!("appending playlist {playlist} to songs list");
-            match client.playlist(playlist) {
-                Ok(pl_content) => {
-                    for s_pth in pl_content {
-                        debug!("appending song {} to songs", s_pth.file);
-                        songs.push(path::PathBuf::from(s_pth.file));
-                    }
+    for playlist in &config.playlists {
+        debug!("appending playlist {playlist} to songs list");
+        match client.playlist(playlist) {
+            Ok(pl_content) => {
+                for s_pth in pl_content {
+                    debug!("appending song {} to songs", s_pth.file);
+                    songs.push(path::PathBuf::from(s_pth.file));
                 }
-                Err(err) => error!("failed to add playlist due to {err}"),
             }
+            Err(err) => error!("failed to add playlist due to {err}"),
         }
     }
-    if args.is_present("queue") {
+
+    if config.queue {
         if let Ok(q) = client.queue() {
             for s_path in q {
                 debug!("appending path {} to songs list", s_path.file);
@@ -332,12 +400,10 @@ pub fn get_stats(client: &mut mpd::Client<ConnType>, args: &clap::ArgMatches, us
             error!("failed to get current queue");
         }
     };
-    if let Some(s_paths) = args.values_of("path") {
-        for user_path in s_paths {
-            debug!("appending path {user_path} to songs list");
-            songs.push(path::PathBuf::from(user_path));
-        }
-    };
+    for user_path in &config.paths {
+        debug!("appending path {user_path} to songs list");
+        songs.push(path::PathBuf::from(user_path));
+    }
     // Collect ratings
     let mut with_ratings: Vec<(_, _)> = Vec::new();
     for song in songs {
@@ -358,61 +424,57 @@ pub fn get_stats(client: &mut mpd::Client<ConnType>, args: &clap::ArgMatches, us
     }
 
     // Sort the songs by ratings
-    let reverse_order = args.is_present("reverse");
-    if let Some(sort_order) = args.get_one::<SortOrder>("sort") {
-        match sort_order {
-            SortOrder::Stats => {
-                with_ratings.sort_by(|s1, s2| {
-                    if reverse_order{
-                        s2.1.get_ratings().partial_cmp(&s1.1.get_ratings()).unwrap()
-                    } else {
-                        s1.1.get_ratings().partial_cmp(&s2.1.get_ratings()).unwrap()
-                    }
-                });
-            }
-            SortOrder::PlayCount => {
-                with_ratings.sort_by(|s1, s2| {
-                    if reverse_order{
-                        s2.1.play_cnt.partial_cmp(&s1.1.play_cnt).unwrap()
-                    } else {
-                        s1.1.play_cnt.partial_cmp(&s2.1.play_cnt).unwrap()
-                    }
-                });
-            },
-            SortOrder::SkipCount => {
-                with_ratings.sort_by(|s1, s2| {
-                    if reverse_order{
-                        s2.1.skip_cnt.partial_cmp(&s1.1.skip_cnt).unwrap()
-                    } else {
-                        s1.1.skip_cnt.partial_cmp(&s2.1.skip_cnt).unwrap()
-                    }
-                });
-
-            },
+    match config.sort {
+        SortOrder::Stats => {
+            with_ratings.sort_by(|s1, s2| {
+                if config.reverse {
+                    s2.1.get_ratings().partial_cmp(&s1.1.get_ratings()).unwrap()
+                } else {
+                    s1.1.get_ratings().partial_cmp(&s2.1.get_ratings()).unwrap()
+                }
+            });
+        }
+        SortOrder::PlayCount => {
+            with_ratings.sort_by(|s1, s2| {
+                if config.reverse {
+                    s2.1.play_cnt.partial_cmp(&s1.1.play_cnt).unwrap()
+                } else {
+                    s1.1.play_cnt.partial_cmp(&s2.1.play_cnt).unwrap()
+                }
+            });
+        }
+        SortOrder::SkipCount => {
+            with_ratings.sort_by(|s1, s2| {
+                if config.reverse {
+                    s2.1.skip_cnt.partial_cmp(&s1.1.skip_cnt).unwrap()
+                } else {
+                    s1.1.skip_cnt.partial_cmp(&s2.1.skip_cnt).unwrap()
+                }
+            });
         }
     }
     // -------------- print all the stats----------------------------
-    for (song, rating) in with_ratings {
-        if args.is_present("stats") {
-            if args.is_present("json") {
-                println!("{}", serde_json::to_string(&(&song, &rating)).unwrap());
-            } else {
+    if config.json {
+        println!("{}", serde_json::to_string(&with_ratings).unwrap());
+    } else {
+        for (song, rating) in with_ratings {
+            if config.stats {
                 println!(
                     "play count: {}\tskip count: {} - {}",
                     rating.play_cnt, rating.skip_cnt, song
                 );
+            } else {
+                println!("{} - {}", rating.get_ratings(), song);
             }
-        } else {
-            println!("{} - {}", rating.get_ratings(), song);
         }
     }
 }
 
 /// sets the stats of a custom user stats
-pub fn set_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, use_tags: bool) {
+pub fn set_stats(client: &mut mpd::Client<ConnType>, config: &SetStatsConfig, use_tags: bool) {
     // get the song to set stats, if current is given then get it from mpd or else from path
     // argument
-    let song_file = if subc.is_present("current") {
+    let song_file = if config.current {
         path::PathBuf::from(
             client
                 .currentsong()
@@ -423,16 +485,14 @@ pub fn set_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, us
                 })
                 .file,
         )
+    } else if config.previous || config.next {
+        todo!("implement getting next or previous song to set stats")
     } else {
-        path::PathBuf::from(subc.value_of("path").unwrap()) // path is required variable so it can be unwrapped
+        path::PathBuf::from(&config.path) // path is required variable so it can be unwrapped
     };
     // if json stats are given then get the stats from json. if not then pick the stats from file and update with given ones
-    let stat = if subc.is_present("stats") {
-        serde_json::from_str::<Statistics>(
-            subc.value_of("stats")
-                .expect("value of stats is not present, please report"),
-        )
-        .try_unwrap("error while parsing parsing Stats")
+    let stat = if let Some(stats) = &config.stats {
+        serde_json::from_str::<Statistics>(stats).try_unwrap("error while parsing parsing Stats")
     } else {
         let mut curr_stat = if use_tags {
             stats_from_tag(&song_file).unwrap_or_else(|err| {
@@ -447,19 +507,11 @@ pub fn set_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, us
                 exit(1);
             })
         };
-        if subc.is_present("play_cnt") {
-            curr_stat.play_cnt = subc
-                .value_of("play_cnt")
-                .unwrap() // required variable
-                .parse()
-                .expect("expected integer value for play_cnt");
+        if let Some(play_cnt) = config.play_cnt {
+            curr_stat.play_cnt = play_cnt
         }
-        if subc.is_present("skip_cnt") {
-            curr_stat.skip_cnt = subc
-                .value_of("skip_cnt")
-                .unwrap() // required variable
-                .parse()
-                .expect("expected integer value for skip_cnt");
+        if let Some(skip_cnt) = config.skip_cnt {
+            curr_stat.skip_cnt = skip_cnt
         }
         curr_stat
     };
@@ -514,50 +566,47 @@ fn get_song_by_key<'a>(key: &ImportMethod, song_list: &'a [mpd::Song]) -> Option
     }
 }
 
+/// import method for arguments
+#[derive(Debug, Clone, ValueEnum)]
+pub enum ImportMethodConfig {
+    /// imports using hashes as key, songs need to have the same name as exported ones. but it supports only for tags not for stickers
+    Hash,
+    /// imports stats using base filename as key
+    File,
+    /// imports stats by taking trackid as key
+    TrackId,
+    /// imports stats by taking title as key
+    Title,
+    /// imports by taking path from mpd_root directory as key
+    Path,
+}
+
 /// imports stats from a given file
 pub fn import_stats(
     client: &mut mpd::Client<ConnType>,
-    subc: &clap::ArgMatches,
+    import_method_config: ImportMethodConfig,
+    input_file: Option<PathBuf>,
+    merge: bool,
     use_tags: bool,
     mut confirm_all: bool,
 ) {
-    let mut reader: Vec<SavedStats> =
-        if let Some(input_file_path) = subc.get_one::<String>("input-file") {
-            debug!("reading from file {}", input_file_path);
-            let f = std::fs::File::open(input_file_path).unwrap();
-            serde_json::from_reader(f).unwrap()
-        } else {
-            debug!("reading from stdin");
-            serde_json::from_reader(std::io::stdin()).unwrap()
-        };
+    let mut reader: Vec<SavedStats> = if let Some(input_file_path) = input_file {
+        debug!("reading from file {:?}", input_file_path);
+        let f = std::fs::File::open(input_file_path).unwrap();
+        serde_json::from_reader(f).unwrap()
+    } else {
+        debug!("reading from stdin");
+        serde_json::from_reader(std::io::stdin()).unwrap()
+    };
     info!("found {} elements", reader.len());
     let song_list = client.listall().unwrap();
     // TODO: clean this dirt
-    let key_type = if subc.contains_id("file") {
-        info!("Getting stats based on filename");
-        1
-    } else if subc.contains_id("title") {
-        info!("Getting stats based on title");
-        2
-    } else if subc.contains_id("trackid") {
-        info!("Getting stats based on trackid");
-        3
-    } else if subc.contains_id("hash") {
-        info!("Getting stats based on hash");
-        4
-    } else {
-        info!("Getting stats based on fullpath");
-        5
-    };
     // if merge is set add present and new value
-    let merge = subc.contains_id("merge");
     reader.iter_mut().for_each(|saved_stats|{
-        let import_meth = match key_type{
-            1 => ImportMethod::FileName(&saved_stats.path),
-            2 => todo!(),
-            3 => todo!(),
-            4 => todo!(),
-            _ => ImportMethod::FullPath(&saved_stats.path),
+        let import_meth = match import_method_config{
+            ImportMethodConfig::File => ImportMethod::FileName(&saved_stats.path),
+            ImportMethodConfig::Hash | ImportMethodConfig::Title | ImportMethodConfig::TrackId => todo!(),
+            ImportMethodConfig::Path => ImportMethod::FullPath(&saved_stats.path),
         };
         info!("importing stats {:?} to {}", saved_stats.stats, saved_stats.path);
         if let Some(found_song) =get_song_by_key(&import_meth, &song_list){
@@ -611,7 +660,12 @@ pub fn import_stats(
 }
 
 /// exports all stats to a file
-pub fn export_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches, use_tags: bool) {
+pub fn export_stats(
+    client: &mut mpd::Client<ConnType>,
+    output_file: Option<PathBuf>,
+    _enable_hash: bool,
+    use_tags: bool,
+) {
     let mut json_stats = Vec::new();
     client.listall().unwrap().iter().filter_map(|song| {
         if use_tags{
@@ -640,8 +694,8 @@ pub fn export_stats(client: &mut mpd::Client<ConnType>, subc: &clap::ArgMatches,
         })
     });
     info!("Found {} stats", json_stats.len());
-    if let Some(output_file) = subc.get_one::<String>("out-file") {
-        info!("Writing stats to file {}", output_file);
+    if let Some(output_file) = output_file {
+        info!("Writing stats to file {:?}", output_file);
         let f = std::fs::File::create(output_file).unwrap();
         serde_json::to_writer(f, &json_stats).unwrap();
     } else {
@@ -667,12 +721,7 @@ fn confirm_user(confirm_all: &mut bool) -> bool {
 }
 
 /// clears stats of all files
-pub fn clear_stats(
-    client: &mut mpd::Client<ConnType>,
-    _subc: &clap::ArgMatches,
-    use_tags: bool,
-    mut confirm_all: bool,
-) {
+pub fn clear_stats(client: &mut mpd::Client<ConnType>, use_tags: bool, mut confirm_all: bool) {
     let stat = Statistics::default();
     client.listall().unwrap().iter().for_each(|song| {
         if use_tags{
