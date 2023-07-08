@@ -112,7 +112,7 @@ struct Config {
     #[arg(short='p', long, default_value_t=format!("{}/.local/run/mpd/socket", std::env::var("HOME").unwrap_or_else(|_|".".to_string())), value_hint(clap::ValueHint::FilePath))]
     socket_path: String,
     /// mpd's root directory
-    #[arg(short, long, value_hint(clap::ValueHint::DirPath))]
+    #[arg(short, long, value_hint(clap::ValueHint::DirPath), env = "MPD_DIR")]
     root_dir: Option<std::path::PathBuf>,
     /// mpd socket address. <host>:<port> ex. -a 127.0.0.1:6600
     #[arg(short = 'a', long, default_value = "127.0.0.1:6600")]
