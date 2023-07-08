@@ -13,7 +13,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 /// header name which will be used on either mpd's sticker database or tags for identifications
-pub const MP_DESC: &str = "mpr";
+pub const MP_DESC: &str = "msout";
 
 /// defines connection type for the mpd.
 #[derive(Debug)]
@@ -93,7 +93,7 @@ enum Commands {
     Clear,
 }
 
-/// Arguments for mpr
+/// Arguments for mscout
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Config {
@@ -104,7 +104,7 @@ struct Config {
     #[arg(short, long, action=clap::ArgAction::Count)]
     verbose: u8,
     /// use eyed3 tags to store ratings. If not specified by default mpd stickers are used. tags are persistante across file moves, where as incase of mpd sticker these will be erased if you move the files.
-    #[arg(short = 't', long, env = "MPR_USE_TAGS")]
+    #[arg(short = 't', long, env = "MSCOUT_USE_TAGS")]
     use_tags: bool,
     /// path to mpd socket.
     /// if both path and socket address are specified, then path has higher priority.
@@ -117,7 +117,7 @@ struct Config {
     /// mpd socket address. <host>:<port> ex. -a 127.0.0.1:6600
     #[arg(short = 'a', long, default_value = "127.0.0.1:6600")]
     socket_address: String,
-    /// subcommands for mpr
+    /// subcommands for mscout
     #[command(subcommand)]
     command: Commands,
 }
@@ -128,11 +128,11 @@ fn main() {
 
     // set the verbosity
     match arguments.verbose {
-        0 => builder.filter_module("mpr", log::LevelFilter::Error).init(),
-        1 => builder.filter_module("mpr", log::LevelFilter::Warn).init(),
-        2 => builder.filter_module("mpr", log::LevelFilter::Info).init(),
-        3 => builder.filter_module("mpr", log::LevelFilter::Debug).init(),
-        4 => builder.filter_module("mpr", log::LevelFilter::Trace).init(),
+        0 => builder.filter_module("mscout", log::LevelFilter::Error).init(),
+        1 => builder.filter_module("mscout", log::LevelFilter::Warn).init(),
+        2 => builder.filter_module("mscout", log::LevelFilter::Info).init(),
+        3 => builder.filter_module("mscout", log::LevelFilter::Debug).init(),
+        4 => builder.filter_module("mscout", log::LevelFilter::Trace).init(),
         _ => {
             builder.filter_level(log::LevelFilter::Trace).init();
             trace!("wait one of the rust expert is coming to debug");

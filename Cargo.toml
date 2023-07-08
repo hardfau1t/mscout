@@ -1,9 +1,9 @@
 [package]
 edition = "2021"
-name = "mpr"
+name = "mscout"
 version = "0.2.0"
 authors = ["hardfault hardfau18@gmail.com"]
-description = "rates song with skip/rate count for mpd"
+description = "scout for mpd, listens for events, tracks the statistics, stores them either in mpd stickers or writes them directly to the metadata for permanent storage"
 
 [dependencies]
 env_logger = "0.9"
