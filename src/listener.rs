@@ -312,6 +312,57 @@ fn init_listener(notif: &mut notify_rust::Notification) {
         }
     });
 }
+
+/// runs the action for given song if ID id,
+/// sends the notification,
+/// runs the user action
+/// `action_str` is used to notify/log message
+fn action_handle(
+    action_fn: impl Fn(&mut stats::Statistics),
+    id: Id,
+    action_str: &str,
+    client: &mut mpd::Client<ConnType>,
+    notif: &mut notify_rust::Notification,
+    use_tags: bool,
+) {
+    if let Ok(Some(song_from_mpd)) = client.playlistid(id.into()) {
+        let song_path = PathBuf::from(song_from_mpd.file);
+        info!("song {action_str} {song_path:?}");
+        notif
+            .body(
+                format!(
+                    "{action_str}: {}",
+                    &song_path
+                        .file_name()
+                        .map_or(song_path.to_str(), |pth| pth.to_str())
+                        .unwrap()
+                )
+                .as_ref(),
+            )
+            .show()
+            .ok();
+        // TODO: optimise this in better way
+        let mut stats = if use_tags {
+            stats::stats_from_tag(&song_path)
+        } else {
+            stats::stats_from_sticker(client, &song_path)
+        }
+        .unwrap_or_default();
+        action_fn(&mut stats);
+        match if use_tags {
+            stats::stats_to_tag(&song_path, &stats)
+        } else {
+            stats::stats_to_sticker(client, &song_path, &stats)
+        } {
+            Ok(_) => (),
+            Err(_) => {
+                error!("skipped rating: Couldn't set the stats");
+            }
+        }
+    } else {
+        error!("check if consume is enabled");
+    }
+}
 /// listens to mpd events sets the statistics for the song
 /// use_tags: if its true then eyed3 tags will be used else mpd stickers are used to store stats
 pub fn listen(client: &mut mpd::Client<ConnType>, use_tags: bool) -> ! {
@@ -332,84 +383,28 @@ pub fn listen(client: &mut mpd::Client<ConnType>, use_tags: bool) -> ! {
                     Subsystem::Player => {
                         // let action = eval_player_events(client, &last_state, &start_time, &timer);
                         match state.handle_event(client.status().unwrap()) {
-                            Action::WhoCares => debug!("Someone can't sleep peacefully"),
+                            Action::WhoCares => {
+                                debug!("Someone can't sleep peacefully");
+                            }
                             Action::Played(id) => {
-                                let song_path = PathBuf::from(
-                                    client
-                                        .playlistid(id.into())
-                                        .unwrap()
-                                        .expect("may be consume enabled?")
-                                        .file,
+                                action_handle(
+                                    stats::Statistics::played,
+                                    id,
+                                    "played",
+                                    client,
+                                    &mut notif,
+                                    use_tags,
                                 );
-                                info!("song Played {song_path:?}");
-                                notif
-                                    .body(
-                                        format!(
-                                            "Played: {}",
-                                            &song_path
-                                                .file_name()
-                                                .map_or(song_path.to_str(), |pth| pth.to_str())
-                                                .unwrap()
-                                        )
-                                        .as_ref(),
-                                    )
-                                    .show()
-                                    .ok();
-                                // TODO: optimise this in better way
-                                let mut stats = if use_tags {
-                                    stats::stats_from_tag(&song_path)
-                                } else {
-                                    stats::stats_from_sticker(client, &song_path)
-                                }
-                                .unwrap_or_default();
-                                stats.played();
-                                match if use_tags {
-                                    stats::stats_to_tag(&song_path, &stats)
-                                } else {
-                                    stats::stats_to_sticker(client, &song_path, &stats)
-                                } {
-                                    Ok(_) => (),
-                                    Err(_) => error!("skipped rating: Couldn't set the stats"),
-                                }
                             }
-                            Action::Skipped(id) => {
-                                if let Ok(Some(song_from_mpd)) = client.playlistid(id.into()) {
-                                    let song_path = PathBuf::from(song_from_mpd.file);
-                                    info!("song skipped {song_path:?}");
-                                    notif
-                                        .body(
-                                            format!(
-                                                "Skipped: {}",
-                                                &song_path
-                                                    .file_name()
-                                                    .map_or(song_path.to_str(), |pth| pth.to_str())
-                                                    .unwrap()
-                                            )
-                                            .as_ref(),
-                                        )
-                                        .show()
-                                        .ok();
-                                    // TODO: optimise this in better way
-                                    let mut stats = if use_tags {
-                                        stats::stats_from_tag(&song_path)
-                                    } else {
-                                        stats::stats_from_sticker(client, &song_path)
-                                    }
-                                    .unwrap_or_default();
-                                    stats.skipped();
-                                    match if use_tags {
-                                        stats::stats_to_tag(&song_path, &stats)
-                                    } else {
-                                        stats::stats_to_sticker(client, &song_path, &stats)
-                                    } {
-                                        Ok(_) => (),
-                                        Err(_) => error!("skipped rating: Couldn't set the stats"),
-                                    }
-                                } else {
-                                    error!("check if consume is enabled")
-                                }
-                            }
-                        };
+                            Action::Skipped(id) => action_handle(
+                                stats::Statistics::skipped,
+                                id,
+                                "skipped",
+                                client,
+                                &mut notif,
+                                use_tags,
+                            ),
+                        }
                     }
                     _ => trace!("ignoring event {}", system),
                 }
