@@ -58,7 +58,14 @@ static ROOT_DIR: OnceCell<PathBuf> = OnceCell::new();
 enum Commands {
     /// listens for mpd events
     #[command()]
-    Listen,
+    Listen {
+        /// runs the given command whenever statistics changes.
+        /// this uses `jinja2` template formatting.
+        /// template should take arguments `path`, `play`, `skip`.
+        /// where path is full path incase of using tags and relative path to mpd dir when using stickers
+        #[arg(short, long)]
+        action: Option<String>
+    },
     /// extracts stats of given songs
     #[command()]
     GetStats(stats::GetStatsConfig),
@@ -174,7 +181,7 @@ fn main() {
         )
     };
     match arguments.command {
-        Commands::Listen => listener::listen(&mut client, arguments.use_tags),
+        Commands::Listen{action} => listener::listen(&mut client, action.as_deref(), arguments.use_tags),
         Commands::GetStats(config) => stats::get_stats(&mut client, &config, arguments.use_tags),
         Commands::SetStats(config) => stats::set_stats(&mut client, &config, arguments.use_tags),
         Commands::Import {

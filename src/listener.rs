@@ -323,6 +323,7 @@ fn action_handle(
     action_str: &str,
     client: &mut mpd::Client<ConnType>,
     notif: &mut notify_rust::Notification,
+    usr_action: Option<&minijinja::Template>,
     use_tags: bool,
 ) {
     if let Ok(Some(song_from_mpd)) = client.playlistid(id.into()) {
@@ -350,11 +351,28 @@ fn action_handle(
         .unwrap_or_default();
         action_fn(&mut stats);
         match if use_tags {
+            dbg!("Writing {stats} to {song_path}");
             stats::stats_to_tag(&song_path, &stats)
         } else {
+            dbg!("Writing {stats} to sticker");
             stats::stats_to_sticker(client, &song_path, &stats)
         } {
-            Ok(_) => (),
+            Ok(_) => {
+                if let Some(action) = usr_action {
+                    if let Ok(cmd_str) = action.render(minijinja::context!(path => song_path, play => stats.play_cnt, skip => stats.skip_cnt)){
+                        let mut cmd =std::process::Command::new("sh");
+                        cmd.arg("-c").arg(cmd_str);
+                        info!("Executing user action: {:?}", cmd);
+                        if let Ok(output) = cmd.output(){
+                            info!("command output {output:?}");
+                        }else {
+                            warn!("Failed to launch cmd {:?}", cmd);
+                        }
+                    }else{
+                        warn!("Failed to render command: {:?}", usr_action);
+                    }
+                }
+            }
             Err(_) => {
                 error!("skipped rating: Couldn't set the stats");
             }
@@ -365,7 +383,7 @@ fn action_handle(
 }
 /// listens to mpd events sets the statistics for the song
 /// use_tags: if its true then eyed3 tags will be used else mpd stickers are used to store stats
-pub fn listen(client: &mut mpd::Client<ConnType>, use_tags: bool) -> ! {
+pub fn listen(client: &mut mpd::Client<ConnType>, action: Option<&str>, use_tags: bool) -> ! {
     let mut notif = Notification::new();
     notif
         .summary("mscout")
@@ -374,6 +392,11 @@ pub fn listen(client: &mut mpd::Client<ConnType>, use_tags: bool) -> ! {
         .icon("/usr/share/icons/Adwaita/scalable/devices/media-optical-dvd-symbolic.svg");
     let mut state = ListenerState::with_status(client.status().unwrap());
     init_listener(&mut notif);
+    let mut jinja_env = minijinja::Environment::new();
+    let action_tmpl = action.and_then(|ac| {
+        jinja_env.add_template("action", ac).ok()?;
+        jinja_env.get_template("action").ok()
+    });
     notif.body("Listener started").show().ok();
     loop {
         if let Ok(sub_systems) = client.wait(&[]) {
@@ -393,6 +416,7 @@ pub fn listen(client: &mut mpd::Client<ConnType>, use_tags: bool) -> ! {
                                     "played",
                                     client,
                                     &mut notif,
+                                    action_tmpl.as_ref(),
                                     use_tags,
                                 );
                             }
@@ -402,6 +426,7 @@ pub fn listen(client: &mut mpd::Client<ConnType>, use_tags: bool) -> ! {
                                 "skipped",
                                 client,
                                 &mut notif,
+                                action_tmpl.as_ref(),
                                 use_tags,
                             ),
                         }

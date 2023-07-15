@@ -25,9 +25,9 @@ use std::{
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct Statistics {
     /// number of times a song is played completely.
-    play_cnt: u32,
+    pub play_cnt: u32,
     /// number of times a song is skipped.
-    skip_cnt: u32,
+    pub skip_cnt: u32,
 }
 
 impl Statistics {

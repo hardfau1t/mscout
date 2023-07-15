@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "mscout"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["hardfault hardfau18@gmail.com"]
 description = "scout for mpd, listens for events, tracks the statistics, stores them either in mpd stickers or writes them directly to the metadata for permanent storage"
 

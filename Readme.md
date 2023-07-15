@@ -3,12 +3,15 @@ Its a plugin for mpd, which handles rating for each song based on play count and
 
 NOTE: This doesn't work if consume is enabled
 
-----
+## Features
+1. monitoring events and updates statistics of mpd.
+2. query or update statistics OTF.
+3. optionally run scriptable action commands every time stat changes
+
 ## Requirements
 1. mpd
 2. rust `<optional only if building from source>`
 
-----
 
 ## Installation
 building from source
