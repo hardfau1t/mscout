@@ -265,7 +265,7 @@ pub struct SetStatsConfig {
     next: bool,
     /// relative path from music directory configured in mpd
     #[arg(group("selection"))]
-    path: String,
+    path: Option<String>,
     /// set the skip count for the song
     #[arg(long, short = 'x')]
     skip_cnt: Option<u32>,
@@ -488,7 +488,8 @@ pub fn set_stats(client: &mut mpd::Client<ConnType>, config: &SetStatsConfig, us
     } else if config.previous || config.next {
         todo!("implement getting next or previous song to set stats")
     } else {
-        path::PathBuf::from(&config.path) // path is required variable so it can be unwrapped
+        path::PathBuf::from(config.path.as_ref().expect("path is optional if current previous or next is specified. Hope any of (-c|-p|-n) is specified"))
+        // path is required variable so it can be unwrapped
     };
     // if json stats are given then get the stats from json. if not then pick the stats from file and update with given ones
     let stat = if let Some(stats) = &config.stats {
