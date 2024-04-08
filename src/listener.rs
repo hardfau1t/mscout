@@ -351,17 +351,15 @@ fn action_handle(
         .unwrap_or_default();
         action_fn(&mut stats);
         match if use_tags {
-            dbg!("Writing {stats} to {song_path}");
             stats::stats_to_tag(&song_path, &stats)
         } else {
-            dbg!("Writing {stats} to sticker");
             stats::stats_to_sticker(client, &song_path, &stats)
         } {
             Ok(_) => {
                 if let Some(action) = usr_action {
                     if let Ok(cmd_str) = action.render(minijinja::context!(path => song_path, play => stats.play_cnt, skip => stats.skip_cnt)){
-                        let mut cmd =std::process::Command::new("sh");
-                        cmd.arg("-c").arg(cmd_str);
+                        let mut cmd =std::process::Command::new(cmd_str);
+                        cmd.arg(song_path).arg(format!("{}",stats.play_cnt)).arg(format!("{}",stats.skip_cnt));
                         info!("Executing user action: {:?}", cmd);
                         if let Ok(output) = cmd.output(){
                             info!("command output {output:?}");

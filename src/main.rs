@@ -60,8 +60,7 @@ enum Commands {
     #[command()]
     Listen {
         /// runs the given command whenever statistics changes.
-        /// this uses `jinja2` template formatting.
-        /// template should take arguments `path`, `play`, `skip`.
+        /// command should take arguments `path`, `play`, `skip`.
         /// where path is full path incase of using tags and relative path to mpd dir when using stickers
         #[arg(short, long)]
         action: Option<String>
