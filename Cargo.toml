@@ -22,6 +22,7 @@ signal-hook = "0.3"
 pbr = "1.0.4"
 mpd = "0.1.0"
 minijinja = "1.0.4"
+color-eyre = { version = "0.6.3", features = ["color-spantrace"] }
 
 [dependencies.serde]
 features = ["derive"]

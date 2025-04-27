@@ -7,6 +7,7 @@ mod error;
 mod listener;
 mod stats;
 use clap::{Parser, Subcommand};
+use color_eyre::eyre::{self, WrapErr};
 use log::{debug, error, trace, warn};
 use once_cell::sync::OnceCell;
 use std::io::{Read, Write};
@@ -63,7 +64,7 @@ enum Commands {
         /// command should take arguments `path`, `play`, `skip`.
         /// where path is full path incase of using tags and relative path to mpd dir when using stickers
         #[arg(short, long)]
-        action: Option<String>
+        action: Option<String>,
     },
     /// extracts stats of given songs
     #[command()]
@@ -128,17 +129,28 @@ struct Config {
     command: Commands,
 }
 
-fn main() {
+fn main() -> color_eyre::Result<()> {
     let mut builder = env_logger::builder();
+    color_eyre::install()?;
     let arguments = Config::parse();
 
     // set the verbosity
     match arguments.verbose {
-        0 => builder.filter_module("mscout", log::LevelFilter::Error).init(),
-        1 => builder.filter_module("mscout", log::LevelFilter::Warn).init(),
-        2 => builder.filter_module("mscout", log::LevelFilter::Info).init(),
-        3 => builder.filter_module("mscout", log::LevelFilter::Debug).init(),
-        4 => builder.filter_module("mscout", log::LevelFilter::Trace).init(),
+        0 => builder
+            .filter_module("mscout", log::LevelFilter::Error)
+            .init(),
+        1 => builder
+            .filter_module("mscout", log::LevelFilter::Warn)
+            .init(),
+        2 => builder
+            .filter_module("mscout", log::LevelFilter::Info)
+            .init(),
+        3 => builder
+            .filter_module("mscout", log::LevelFilter::Debug)
+            .init(),
+        4 => builder
+            .filter_module("mscout", log::LevelFilter::Trace)
+            .init(),
         _ => {
             builder.filter_level(log::LevelFilter::Trace).init();
             trace!("wait one of the rust expert is coming to debug");
@@ -148,39 +160,45 @@ fn main() {
     if arguments.use_tags {
         debug!("Using tags for storing stats");
     }
-    let mut client = {
-        debug!("trying to connect to unix stream {}", arguments.socket_path);
-        std::os::unix::net::UnixStream::connect(arguments.socket_path).map_or_else(
-            |err| {
-                warn!("Failed to connect to unix stream due to {err}");
-                debug!("connecting to TcpStream {}", arguments.socket_address);
-                if arguments.use_tags {
-                    if let Some(root_dir) = &arguments.root_dir {
-                        debug!("Setting mpd root-dir to {:?}", root_dir);
-                        ROOT_DIR.set(root_dir.to_path_buf()).unwrap();
-                    } else {
-                        error!(
-                            "for socket connection if tags are required then root-dir must be set"
-                        );
-                        std::process::exit(1);
-                    }
-                }
-                mpd::Client::new(ConnType::Socket(
-                    std::net::TcpStream::connect(arguments.socket_address).unwrap(),
+
+    debug!("trying to connect to unix stream {}", arguments.socket_path);
+    let mut client = match std::os::unix::net::UnixStream::connect(arguments.socket_path) {
+        Ok(conn) => {
+            let mut client = mpd::Client::new(ConnType::Stream(conn))
+                .wrap_err("Couldn't create connection to mpd")?;
+            ROOT_DIR
+                .set(PathBuf::from(
+                    client
+                        .music_directory()
+                        .wrap_err("Couldn't get root directory from mpd")?,
                 ))
-                .unwrap()
-            },
-            |conn| {
-                let mut client = mpd::Client::new(ConnType::Stream(conn)).unwrap();
-                ROOT_DIR
-                    .set(PathBuf::from(client.music_directory().unwrap()))
-                    .unwrap();
-                client
-            },
-        )
+                .map_err(|e| eyre::eyre!("Couldn't set root directory: {e:?}"))?;
+            client
+        }
+        Err(err) => {
+            warn!("Failed to connect to unix stream due to {err}");
+            debug!("connecting to TcpStream {}", arguments.socket_address);
+            if arguments.use_tags {
+                if let Some(root_dir) = &arguments.root_dir {
+                    debug!("Setting mpd root-dir to {:?}", root_dir);
+                    ROOT_DIR.set(root_dir.to_path_buf()).map_err(|e| {
+                        color_eyre::eyre::eyre!("Couldn't set root directory to {e:?}")
+                    })?;
+                } else {
+                    error!("for socket connection if tags are required then root-dir must be set");
+                    std::process::exit(1);
+                }
+            }
+            mpd::Client::new(ConnType::Socket(
+                std::net::TcpStream::connect(arguments.socket_address).wrap_err("Couldn't create connection to mpd")?,
+            ))
+            .wrap_err("Couldn't create mpd client")?
+        }
     };
     match arguments.command {
-        Commands::Listen{action} => listener::listen(&mut client, action.as_deref(), arguments.use_tags),
+        Commands::Listen { action } => {
+            listener::listen(&mut client, action.as_deref(), arguments.use_tags)
+        }
         Commands::GetStats(config) => stats::get_stats(&mut client, &config, arguments.use_tags),
         Commands::SetStats(config) => stats::set_stats(&mut client, &config, arguments.use_tags),
         Commands::Import {
@@ -200,4 +218,5 @@ fn main() {
         }
         Commands::Clear => stats::clear_stats(&mut client, arguments.use_tags, arguments.yes),
     }
+    Ok(())
 }
