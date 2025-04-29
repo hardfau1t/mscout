@@ -397,40 +397,45 @@ pub fn listen(client: &mut mpd::Client<ConnType>, action: Option<&str>, use_tags
     });
     notif.body("Listener started").show().ok();
     loop {
-        if let Ok(sub_systems) = client.wait(&[]) {
-            // sub systems which caused the thread to wake up
-            for system in sub_systems {
-                match system {
-                    Subsystem::Player => {
-                        // let action = eval_player_events(client, &last_state, &start_time, &timer);
-                        match state.handle_event(client.status().unwrap()) {
-                            Action::WhoCares => {
-                                debug!("Someone can't sleep peacefully");
-                            }
-                            Action::Played(id) => {
-                                action_handle(
-                                    stats::Statistics::played,
+        match client.wait(&[]) {
+            Ok(sub_systems) => {
+                // sub systems which caused the thread to wake up
+                for system in sub_systems {
+                    match system {
+                        Subsystem::Player => {
+                            // let action = eval_player_events(client, &last_state, &start_time, &timer);
+                            match state.handle_event(client.status().unwrap()) {
+                                Action::WhoCares => {
+                                    debug!("Someone can't sleep peacefully");
+                                }
+                                Action::Played(id) => {
+                                    action_handle(
+                                        stats::Statistics::played,
+                                        id,
+                                        "played",
+                                        client,
+                                        &mut notif,
+                                        action_tmpl.as_ref(),
+                                        use_tags,
+                                    );
+                                }
+                                Action::Skipped(id) => action_handle(
+                                    stats::Statistics::skipped,
                                     id,
-                                    "played",
+                                    "skipped",
                                     client,
                                     &mut notif,
                                     action_tmpl.as_ref(),
                                     use_tags,
-                                );
+                                ),
                             }
-                            Action::Skipped(id) => action_handle(
-                                stats::Statistics::skipped,
-                                id,
-                                "skipped",
-                                client,
-                                &mut notif,
-                                action_tmpl.as_ref(),
-                                use_tags,
-                            ),
                         }
+                        _ => trace!("ignoring event {}", system),
                     }
-                    _ => trace!("ignoring event {}", system),
                 }
+            }
+            Err(e) => {
+                error!("{e} while waiting for events");
             }
         }
     }

@@ -845,7 +845,7 @@ dependencies = [
 [[package]]
 name = "mpd"
 version = "0.1.0"
-source = "git+https://github.com/hardfau1t/rust-mpd?branch=fix%2F83#ec3f8b5f3eaa2c9deb3e78b375500c64817de5a6"
+source = "git+https://github.com/hardfau1t/rust-mpd?branch=fix%2F83#715b9c7b3a0551df326edcd829252d2b8dbdb1f0"
 dependencies = [
  "bufstream",
 ]
