@@ -10,8 +10,15 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      rust-overlay,
+      flake-utils,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs {
@@ -31,8 +38,14 @@
           pname = "mscout";
           version = "0.3.0";
           src = ./.;
-          cargoLock.lockFile = ./Cargo.lock;
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+            outputHashes = {
+              "mpd-0.1.0" = "sha256-r0xBWocXxxO8AbTl9MG5nqTFcXMCcHlDsUMxPGeFqv0="; # remove this once #83 is fixed in rust-mpd crate
+            };
+          };
           buildInputs = [ ];
         };
-      });
+      }
+    );
 }
