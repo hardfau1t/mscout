@@ -845,8 +845,7 @@ dependencies = [
 [[package]]
 name = "mpd"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e12cace5746cb0aa78faa6cd2caec9f9c01882fc0e6b54d34685a2d3303ea34"
+source = "git+https://github.com/hardfau1t/rust-mpd?branch=fix%2F83#ec3f8b5f3eaa2c9deb3e78b375500c64817de5a6"
 dependencies = [
  "bufstream",
 ]
