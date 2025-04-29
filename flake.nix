@@ -41,7 +41,7 @@
           cargoLock = {
             lockFile = ./Cargo.lock;
             outputHashes = {
-              "mpd-0.1.0" = "sha256-r0xBWocXxxO8AbTl9MG5nqTFcXMCcHlDsUMxPGeFqv0="; # remove this once #83 is fixed in rust-mpd crate
+              "mpd-0.1.0" = "sha256-hKb91umtaDd53+AYiERBKLT3FezacGfWZZBDsUEd/JQ="; # remove this once #83 is fixed in rust-mpd crate
             };
           };
           buildInputs = [ ];
