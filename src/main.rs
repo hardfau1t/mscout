@@ -190,11 +190,16 @@ fn main() -> color_eyre::Result<()> {
                 }
             }
             mpd::Client::new(ConnType::Socket(
-                std::net::TcpStream::connect(arguments.socket_address).wrap_err("Couldn't create connection to mpd")?,
+                std::net::TcpStream::connect(arguments.socket_address)
+                    .wrap_err("Couldn't create connection to mpd")?,
             ))
             .wrap_err("Couldn't create mpd client")?
         }
     };
+
+    if let Some(root_dir) = ROOT_DIR.get() {
+        std::env::set_var("MPD_DIR", root_dir);
+    }
     match arguments.command {
         Commands::Listen { action } => {
             listener::listen(&mut client, action.as_deref(), arguments.use_tags)
